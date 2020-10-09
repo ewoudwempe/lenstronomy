@@ -33,7 +33,7 @@ class LikelihoodModule(object):
                  prior_source_kde=[], prior_lens_light_kde=[], prior_ps_kde=[], prior_special_kde=[],
                  prior_extinction_kde=[], prior_lens_lognormal=[], prior_source_lognormal=[],
                  prior_extinction_lognormal=[], prior_lens_light_lognormal=[], prior_ps_lognormal=[],
-                 prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None):
+                 prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None, noflux_ps=False):
         """
         initializing class
 
@@ -74,6 +74,7 @@ class LikelihoodModule(object):
         if len(multi_band_list) == 0:
             image_likelihood = False
 
+        self.noflux_ps = noflux_ps
         self.param = param_class
         self._lower_limit, self._upper_limit = self.param.param_limits()
         self._prior_likelihood = PriorLikelihood(prior_lens, prior_source, prior_lens_light, prior_ps, prior_special,
@@ -133,7 +134,12 @@ class LikelihoodModule(object):
                                                              **kwargs_time_delay)
 
         if self._image_likelihood is True:
-            self.image_likelihood = ImageLikelihood(kwargs_model=kwargs_model, **kwargs_imaging)
+            if self.noflux_ps:
+                psmod = kwargs_model.pop('point_source_model_list')
+                self.image_likelihood = ImageLikelihood(kwargs_model=kwargs_model, **kwargs_imaging)
+                kwargs_model['point_source_model_list'] = psmod
+            else:
+                self.image_likelihood = ImageLikelihood(kwargs_model=kwargs_model, **kwargs_imaging)
         self._position_likelihood = PositionLikelihood(point_source_class, **kwargs_position)
         if self._flux_ratio_likelihood is True:
             self.flux_ratio_likelihood = FluxRatioLikelihood(lens_model_class, **kwargs_flux)
@@ -166,7 +172,12 @@ class LikelihoodModule(object):
         logL = 0
 
         if self._image_likelihood is True:
-            logL_image = self.image_likelihood.logL(**kwargs_return)
+            if self.noflux_ps:
+                d = dict(kwargs_lens=kwargs_lens, kwargs_source=kwargs_source, kwargs_lens_light=kwargs_lens_light, kwargs_special=kwargs_special)
+                logL_image = self.image_likelihood.logL(**d)
+            else:
+                logL_image = self.image_likelihood.logL(**kwargs_return)
+
             logL += logL_image
             if verbose is True:
                 print('image logL = %s' % logL_image)
