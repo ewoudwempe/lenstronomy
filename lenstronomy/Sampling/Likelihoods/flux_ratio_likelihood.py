@@ -49,6 +49,8 @@ class FluxRatioLikelihood(object):
                                                                    grid_number=self._gird_number,
                                                                    shape=self._source_type, polar_grid=self._polar_grid,
                                                                    aspect_ratio=self._aspect_ratio)
+        if len(mag)-1 != len(self._flux_ratios):
+            return -10**15
         mag_ratio = mag[1:] / mag[0]
         return self._logL(mag_ratio)
 
