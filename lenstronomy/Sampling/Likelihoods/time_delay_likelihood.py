@@ -52,9 +52,9 @@ class TimeDelayLikelihood(object):
         :param delays_errors: gaussian errors on the measured delays
         :return: log likelihood of data given model
         """
-        delta_t_model = np.array(delays_model[1:]) - delays_model[0]
-        if len(delta_t_model) != len(delays_measured):
+        if len(delays_model)-1 != len(delays_measured):
             return -10**(15)
+        delta_t_model = np.array(delays_model[1:]) - delays_model[0]
         logL = np.sum(-(delta_t_model - delays_measured) ** 2 / (2 * delays_errors ** 2))
         return logL
 
