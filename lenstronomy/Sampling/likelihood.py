@@ -33,7 +33,7 @@ class LikelihoodModule(object):
                  prior_source_kde=[], prior_lens_light_kde=[], prior_ps_kde=[], prior_special_kde=[],
                  prior_extinction_kde=[], prior_lens_lognormal=[], prior_source_lognormal=[],
                  prior_extinction_lognormal=[], prior_lens_light_lognormal=[], prior_ps_lognormal=[],
-                 prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None, noflux_ps=False):
+                 prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None, noflux_ps=False, justasbad=True):
         """
         initializing class
 
@@ -73,6 +73,7 @@ class LikelihoodModule(object):
         multi_band_list, multi_band_type, time_delays_measured, time_delays_uncertainties, flux_ratios, flux_ratio_errors, ra_image_list, dec_image_list = self._unpack_data(**kwargs_data_joint)
         if len(multi_band_list) == 0:
             image_likelihood = False
+        self.justasbad = justasbad
 
         self.noflux_ps = noflux_ps
         self.param = param_class
@@ -156,7 +157,7 @@ class LikelihoodModule(object):
         if self._check_bounds is True:
             penalty, bound_hit = self.check_bounds(args, self._lower_limit, self._upper_limit, verbose=verbose)
             if bound_hit is True:
-                return -np.inf
+                return -10**15
         return self.log_likelihood(kwargs_return, verbose=verbose)
 
     def log_likelihood(self, kwargs_return, verbose=False):
@@ -205,6 +206,8 @@ class LikelihoodModule(object):
             if verbose is True:
                 print('custom added logL = %s' % logL_cond)
         self._reset_point_source_cache(bool=False)
+        if logL < -10**14 and self.justasbad:
+            return -10**5 # Ensure that bad samples are just as bad as each other, so that multinest sampling will always reject them
         return logL#, None
 
     @staticmethod
