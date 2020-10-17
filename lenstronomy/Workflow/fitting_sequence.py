@@ -7,6 +7,7 @@ from lenstronomy.Sampling.sampler import Sampler
 from lenstronomy.Sampling.Samplers.multinest_sampler import MultiNestSampler
 from lenstronomy.Sampling.Samplers.polychord_sampler import DyPolyChordSampler
 from lenstronomy.Sampling.Samplers.dynesty_sampler import DynestySampler
+from lenstronomy.Sampling.Samplers.ultranest_sampler import UltranestSampler
 import numpy as np
 import lenstronomy.Util.analysis_util as analysis_util
 
@@ -273,7 +274,7 @@ class FittingSequence(object):
                         polychord_settings={},
                         dypolychord_seed_increment=200,
                         output_dir="nested_sampling_chains",
-                        dynesty_bound='multi', dynesty_sample='auto', kwargs_dynesty={}):
+                        dynesty_bound='multi', dynesty_sample='auto', kwargs_sampler={}):
         """
         Run (Dynamic) Nested Sampling algorithms, depending on the type of algorithm.
 
@@ -338,9 +339,20 @@ class FittingSequence(object):
                                      pool=self._pool,
                                      use_mpi=self._mpi,
                                      static=static,
-                                     kwargs=kwargs_dynesty)
+                                     kwargs=kwargs_sampler)
             samples, means, logZ, logZ_err, logL, results_object = sampler.run(kwargs_run)
+        elif sampler_type in ['ULTRANEST', 'ULTRANEST_STATIC']:
+            static = sampler_type == 'ULTRANEST_STATIC'
+            sampler = UltranestSampler(self.likelihoodModule,
+                                     prior_type=prior_type,
+                                     prior_means=mean_start,
+                                     prior_sigmas=sigma_start,
+                                     width_scale=width_scale,
+                                     sigma_scale=sigma_scale,
+                                     kwargs=kwargs_sampler,
+                                     static=static)
 
+            samples, means, logZ, logZ_err, logL, results_object = sampler.run(kwargs_run)
         else:
             raise ValueError('Sampler type %s not supported.' % sampler_type)
         # update current best fit values
