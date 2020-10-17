@@ -4,6 +4,8 @@ import numpy as np
 
 from lenstronomy.Sampling.Samplers.base_nested_sampler import NestedSampler
 import lenstronomy.Util.sampling_util as utils
+import dynesty
+import dynesty.utils as dyfunc
 
 __all__ = ['DynestySampler']
 
@@ -46,7 +48,7 @@ class DynestySampler(NestedSampler):
                 sys.exit(0)
 
         # create the Dynesty sampler
-        sampler = self._dynesty.NestedSampler if static else self._dynesty.DynamicNestedSampler
+        sampler = dynesty.NestedSampler if static else dynesty.DynamicNestedSampler
         self._sampler = sampler(self.log_likelihood, self.prior, self.n_dims, bound=bound, sample=sample, pool=pool, **kwargs)
         self._has_warned = False
 
@@ -112,14 +114,15 @@ class DynestySampler(NestedSampler):
             # it is not *quite* the case (up to 6 decimals)
             weights = weights / np.sum(weights)
 
-        means, covs = self._dyfunc.mean_and_cov(samples_w, weights)
+        means, covs = dyfunc.mean_and_cov(samples_w, weights)
 
         # Resample weighted samples to get equally weighted (aka unweighted) samples
-        samples = self._dyfunc.resample_equal(samples_w, weights)
+        samples = dyfunc.resample_equal(samples_w, weights)
 
         return samples, means, logZ, logZ_err, logL, results
 
     def _check_install(self):
+
         try:
             import dynesty
             import dynesty.utils as dyfunc
@@ -129,5 +132,3 @@ class DynestySampler(NestedSampler):
             self._dynesty_installed = False
         else:
             self._dynesty_installed = True
-            self._dynesty = dynesty
-            self._dyfunc = dyfunc
