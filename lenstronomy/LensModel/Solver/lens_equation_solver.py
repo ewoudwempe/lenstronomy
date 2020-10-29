@@ -2,8 +2,59 @@ import numpy as np
 import lenstronomy.Util.util as util
 import lenstronomy.Util.image_util as image_util
 from scipy.optimize import minimize
+from lenstronomy.LensModel.gravpy import Gravlens
 
 __all__ = ['LensEquationSolver']
+
+
+class GravlensOverloaded(Gravlens):
+    def __init__(self, lensModel, kwargs_lens):
+        self.lensModel = lensModel
+        self.kwargs_lens = kwargs_lens
+
+        carargs = [
+            [-2.5, 2.5, 0.5],
+            [-2.5, 2.5, 0.5]
+        ]
+        # center position (coordinate pair), outer radius, number of divisions
+        # in radius, number of divisions in angle (for 360 degrees)
+        from gravpy.models import SIE
+        polarargs = [[(0, 0), 1, 10, 42]]
+        modelargs = [SIE(0.99, 0, 0, 0, 0, 0)]
+
+        super().__init__(carargs, polarargs, modelargs, image=np.array([0.4,0.4]), logging_level='warning')
+        self.run()
+
+    def relation(self, x, y):
+        mags = self.lensModel.magnification(x, y, self.kwargs_lens)
+        #theirs = super().relation(x, y)
+        #print((ret!=mine), (ret!=mine).sum())
+        #print(mags[ret!=mine])
+        return np.sign(mags)
+
+    def mapping(self, v):
+        x_guess, y_guess = v
+        x_mapped, y_mapped = self.lensModel.ray_shooting(x_guess, y_guess, self.kwargs_lens)
+        f_xx, f_xy, f_yx, f_yy = self.lensModel.hessian(x_guess, y_guess, self.kwargs_lens)
+        DistMatrix = np.array([[1 - f_yy, -f_yx], [-f_xy, 1 - f_xx]]) # - for convention of keeton
+        #det = (1 - f_xx) * (1 - f_yy) - f_xy * f_yx
+        x_source, y_source = self.image
+        deflectionvector = np.array([x_mapped - x_source, y_mapped - y_source])
+        #image_plane_vector = DistMatrix.dot(deltaVec) / det
+        #theirs = super().mapping(v)
+        mine = [deflectionvector, DistMatrix]
+        #print(theirs, mine)
+        return mine
+
+    def carmapping(self, x, y):
+        self.logger.debug("******Mapping Call******")
+        phiarr = self.potdefmag(x, y)
+        phix, phiy = phiarr[1:3]
+        #theirs = np.transpose([x - phix, y - phiy])
+        mine = np.array(self.lensModel.ray_shooting(x, y, self.kwargs_lens)).T
+        #print(theirs.shape, mine.shape)
+        #print(theirs, mine)
+        return mine
 
 
 class LensEquationSolver(object):
