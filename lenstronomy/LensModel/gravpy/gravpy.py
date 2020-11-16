@@ -24,6 +24,7 @@ class Gravlens:
         self.recurse_depth = recurse_depth
         self.caustics_depth = caustics_depth
         self.cache = {}
+        self.make_dpoints = True
 
         levels = {'critical': 50, 'error': 40, 'warning': 30, 'info': 20, 'debug': 10, 'notset': 0}
         if isinstance(logging_level, str):
@@ -35,7 +36,7 @@ class Gravlens:
         self.logger = logging.getLogger(__name__)
 
         self.num_eval = 0
-        print("")
+        #print("")
 
     # To overload
     def relation(self, x, y):
@@ -281,6 +282,7 @@ class Gravlens:
             self.critical_lines = np.transpose(
                 np.mean(cells_sel, axis=1))  # don't want the vertices of each cell; just the (center) of each cell
 
+        self.critical_cells = cells_sel
         return np.vstack((grid_pairs, output_pairs))
 
     def generate_ranges(self):
@@ -304,11 +306,9 @@ class Gravlens:
         polargrids = np.reshape([], (0, 2))
 
         for grid in self.polargs:
-            center, rupper, rdivisions, thetadivisions = grid
+            center, rlower, rupper, rdivisions, thetadivisions = grid
 
-            logr1 = np.log10(rupper + 1)
-
-            r = np.logspace(0, logr1, num=rdivisions) - 1
+            r = np.geomspace(rlower, rupper, num=rdivisions)
             theta = np.linspace(0, 2 * np.pi, thetadivisions, endpoint=False)
 
             ## the rs and thetas formed from a cartesian product. Used for vector operations.
@@ -337,6 +337,7 @@ class Gravlens:
 
         carstack = self.points5(x, y)  # generate subgrid on cartesian grid
         polstack = np.array(pol_ranges)
+        #print(carstack.shape, polstack.shape)
         stack = np.concatenate((carstack, polstack), axis=0)  # combine list of cartesian and polar pairs
         transformed = self.carmapping(stack[:, 0], stack[:, 1])  # transform pairs from image to source plane
         if self.include_caustics:
@@ -346,11 +347,12 @@ class Gravlens:
         else:
             self.caustics = None
 
-        dpoints = Delaunay(stack)  # generate Delaunay object for triangulization/triangles
+        if self.make_dpoints:
+            dpoints = Delaunay(stack)  # generate Delaunay object for triangulization/triangles
+            self.dpoints = dpoints
 
         self.stack = stack
         self.transformed = transformed
-        self.dpoints = dpoints
 
     def find_source(self):
         """Employs the algorithm in the 'trinterior' module to find the positions of the image in the image plane.
@@ -369,7 +371,7 @@ class Gravlens:
                             axis=1)  # list of the centroid coordinates for the triangles which contain the point 'image'
         # use centroid coordinates as guesses for the actual root finding algorithm
         realpos = np.array(
-            [(op.root(self.mapping, v, jac=True, tol=1e-4)).x for v in sourcepos]
+            [(op.root(self.mapping, v, jac=True, tol=1e-8)).x for v in sourcepos]
         )
 
         self.realpos = realpos

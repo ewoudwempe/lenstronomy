@@ -6,62 +6,172 @@ from lenstronomy.LensModel.gravpy import Gravlens
 
 __all__ = ['LensEquationSolver']
 
+def _get_fraction(from_value, to_value, level):
+    if (to_value == from_value):
+        return 0
+    return ((level - from_value) / (to_value - from_value))
+
+def marching_squares(cells, values):
+    # Inspired by scikit-image implementation.
+    # Cells: N*4*2
+    # Values: N*4
+    segments=[]
+    for square, m in zip(cells, values):
+        #ul = array[r0, c0]
+        #ur = array[r0, c1]
+        #ll = array[r1, c0]
+        #lr = array[r1, c1]
+        level=0
+        ul = m[1]
+        ur = m[3]
+        ll = m[0]
+        lr = m[2]
+        #ul = m[0]
+        #ur = m[1]
+        #ll = m[2]
+        #lr = m[3]
+
+
+        # Skip this square if any of the four input values are NaN.
+        if np.any(np.isnan(square)):
+            continue
+
+        square_case = 0
+        if (ul > level): square_case += 1
+        if (ur > level): square_case += 2
+        if (ll > level): square_case += 4
+        if (lr > level): square_case += 8
+
+        if square_case in [0, 15]:
+            # only do anything if there's a line passing through the
+            # square. Cases 0 and 15 are entirely below/above the contour.
+            continue
+        r0, c0 = square[0]
+        r1, c1 = square[3]
+
+        top = r0 + _get_fraction(ul, ur, level)*(r1-r0), c1
+        bottom = r0 + _get_fraction(ll, lr, level)*(r1-r0), c0
+        left = r0, c0 + _get_fraction(ll, ul, level)*(c1-c0)
+        right = r1, c0 + _get_fraction(lr, ur, level)*(c1-c0)
+
+        if (square_case == 1):
+            # top to left
+            segments.append((top, left))
+        elif (square_case == 2):
+            # right to top
+            segments.append((right, top))
+        elif (square_case == 3):
+            # right to left
+            segments.append((right, left))
+        elif (square_case == 4):
+            # left to bottom
+            segments.append((left, bottom))
+        elif (square_case == 5):
+            # top to bottom
+            segments.append((top, bottom))
+        elif (square_case == 6):
+            raise ValueError("Bad marching squares topology - something wrong with grid.")
+        elif (square_case == 7):
+            # right to bottom
+            segments.append((right, bottom))
+        elif (square_case == 8):
+            # bottom to right
+            segments.append((bottom, right))
+        elif (square_case == 9):
+            raise ValueError("Bad marching squares topology - something wrong with grid.")
+        elif (square_case == 10):
+            # bottom to top
+            segments.append((bottom, top))
+        elif (square_case == 11):
+            # bottom to left
+            segments.append((bottom, left))
+        elif (square_case == 12):
+            # lef to right
+            segments.append((left, right))
+        elif (square_case == 13):
+            # top to right
+            segments.append((top, right))
+        elif (square_case == 14):
+            # left to top
+            segments.append((left, top))
+    segments.append(segments[0])
+    return np.array(segments)
+
+cart2pol = lambda x: (np.sqrt(x[0]**2+x[1]**2), np.arctan2(x[1],x[0])%(2*np.pi))
+pol2cart = lambda x: (x[0]*np.cos(x[1]), x[0]*np.sin(x[1]))
 
 class GravlensOverloaded(Gravlens):
-    def __init__(self, lensModel, kwargs_lens):
+    def __init__(self, lensModel, kwargs_lens, carargs, polarargs, make_dpoints=True):
         self.lensModel = lensModel
         self.kwargs_lens = kwargs_lens
+        self.transformed = None # For checking if we generated caustics later
+        self.caustics = None
 
-        carargs = [
-            [-2.5, 2.5, 0.5],
-            [-2.5, 2.5, 0.5]
-        ]
-        # center position (coordinate pair), outer radius, number of divisions
-        # in radius, number of divisions in angle (for 360 degrees)
-        from gravpy.models import SIE
-        polarargs = [[(0, 0), 1, 10, 42]]
-        modelargs = [SIE(0.99, 0, 0, 0, 0, 0)]
-
-        super().__init__(carargs, polarargs, modelargs, image=np.array([0.4,0.4]), logging_level='warning')
-        self.run()
+        super().__init__(carargs, polarargs, None, image=None, logging_level='info', show_plot=False)
+        self.make_dpoints = make_dpoints
 
     def relation(self, x, y):
         mags = self.lensModel.magnification(x, y, self.kwargs_lens)
-        #theirs = super().relation(x, y)
-        #print((ret!=mine), (ret!=mine).sum())
-        #print(mags[ret!=mine])
         return np.sign(mags)
+
+    def magnification(self, x, y):
+        mags = self.lensModel.magnification(x, y, self.kwargs_lens)
+        return mags
 
     def mapping(self, v):
         x_guess, y_guess = v
-        x_mapped, y_mapped = self.lensModel.ray_shooting(x_guess, y_guess, self.kwargs_lens)
+        x_mapped, y_mapped = self.lensModel.ray_shooting(x_guess, y_guess, self.kwargs_lens) # Near the center, this code fails, where Keeton's works.
         f_xx, f_xy, f_yx, f_yy = self.lensModel.hessian(x_guess, y_guess, self.kwargs_lens)
         DistMatrix = np.array([[1 - f_yy, -f_yx], [-f_xy, 1 - f_xx]]) # - for convention of keeton
-        #det = (1 - f_xx) * (1 - f_yy) - f_xy * f_yx
         x_source, y_source = self.image
         deflectionvector = np.array([x_mapped - x_source, y_mapped - y_source])
-        #image_plane_vector = DistMatrix.dot(deltaVec) / det
-        #theirs = super().mapping(v)
         mine = [deflectionvector, DistMatrix]
-        #print(theirs, mine)
         return mine
 
     def carmapping(self, x, y):
-        self.logger.debug("******Mapping Call******")
-        phiarr = self.potdefmag(x, y)
-        phix, phiy = phiarr[1:3]
-        #theirs = np.transpose([x - phix, y - phiy])
-        mine = np.array(self.lensModel.ray_shooting(x, y, self.kwargs_lens)).T
-        #print(theirs.shape, mine.shape)
-        #print(theirs, mine)
-        return mine
+        return np.array(self.lensModel.ray_shooting(x, y, self.kwargs_lens)).T
+
+    def get_caustics(self):
+        args = self.generate_ranges()
+        x, y = args[0]
+        polargrids = args[1]
+        self.transformations((x, y), polargrids)
+
+        mags = self.magnification(*np.moveaxis(self.critical_cells, -1, 0))
+        fil = np.abs(mags[:].min(axis=-1)) > 1
+        means = self.critical_cells.mean(axis=1)[fil]
+        if 'center_x' in self.kwargs_lens[0]:
+            means -= [self.kwargs_lens[0]['center_x'], self.kwargs_lens[0]['center_y']]
+        else:
+            print("warning: not able to properly center the image before calculating the critical curves.")
+
+        rs, phis = cart2pol(np.moveaxis(means, -1, 0))
+        idx_sort = np.argsort(phis)
+        segments = marching_squares(self.critical_cells[fil][idx_sort], 1 / mags[fil][idx_sort])
+        crit_line = segments[:, 0]
+        x_s, y_s = self.lensModel.ray_shooting(*crit_line.T, self.kwargs_lens)
+        return np.array([*crit_line.T, x_s, y_s])
+
+    def solve(self, x_source, y_source, ret_caustics=False):
+        self.image = np.array([x_source, y_source])
+        if self.caustics is not None:
+            self.find_source()
+        else:
+            self.run()
+        if ret_caustics:
+            return self.realpos, self.get_caustics()
+        else:
+            return self.realpos
+
+    def validate_arguments(self):
+        pass
 
 
 class LensEquationSolver(object):
     """
     class to solve for image positions given lens model and source position
     """
-    def __init__(self, lensModel):
+    def __init__(self, lensModel, use_gravlens=False, kwargs_lens=None, gravpy_onlycaustics=False):
         """
         This class must contain the following definitions (with same syntax as the standard LensModel() class:
         def ray_shooting()
@@ -72,6 +182,19 @@ class LensEquationSolver(object):
 
         """
         self.lensModel = lensModel
+        self.use_gravlens=use_gravlens
+        self.gravpy_onlycaustics = gravpy_onlycaustics
+        if self.use_gravlens:
+            self.init_gravlens(kwargs_lens)
+
+    def init_gravlens(self, kwargs_lens):
+        thetae = kwargs_lens[0]['theta_E']
+        x_center, y_center = kwargs_lens[0]['center_x'], kwargs_lens[0]['center_y']
+
+        carargs = [[-thetae*4 + x_center, thetae*4 + x_center, thetae/20],
+                   [-thetae*4 + y_center, thetae*4 + y_center, thetae/20]]
+        polarargs = [[(x_center, y_center), thetae/100, thetae*100, 100, 10]]
+        self.gravlens = GravlensOverloaded(self.lensModel, kwargs_lens, carargs, polarargs, make_dpoints=(not self.gravpy_onlycaustics))
 
     def image_position_stochastic(self, source_x, source_y, kwargs_lens, search_window=10,
                                   precision_limit=10**(-10), arrival_time_sort=True, x_center=0,
@@ -155,6 +278,61 @@ class LensEquationSolver(object):
         pixel_width = x_grid[1]-x_grid[0] 
             
         return x_mins, y_mins, delta_map, pixel_width
+
+    def image_position_gravpy(self, sourcePos_x, sourcePos_y, kwargs_lens, min_distance=0.3, search_window=8,
+                                   precision_limit=10**(-10), num_iter_max=100, arrival_time_sort=True,
+                                   initial_guess_cut=True, verbose=False, x_center=0, y_center=0, num_random=0,
+                                   non_linear=False, magnification_limit=None, include_caustics=False):
+        """
+        finds image position source position and lens model
+
+        :param sourcePos_x: source position in units of angle
+        :param sourcePos_y: source position in units of angle
+        :param kwargs_lens: lens model parameters as keyword arguments
+        :param min_distance: minimum separation to consider for two images in units of angle
+        :param search_window: window size to be considered by the solver. Will not find image position outside this window
+        :param precision_limit: required precision in the lens equation solver (in units of angle in the source plane).
+        :param num_iter_max: maximum iteration of lens-source mapping conducted by solver to match the required precision
+        :param arrival_time_sort: bool, if True, sorts image position in arrival time (first arrival photon first listed)
+        :param verbose: bool, if True, prints some useful information for the user
+        :param x_center: float, center of the window to search for point sources
+        :param y_center: float, center of the window to search for point sources
+        :param num_random: int, number of random positions within the search window to be added to be starting
+         positions for the gradient decent solver
+        :param magnification_limit: None or float, if set will only return image positions that have an
+         abs(magnification) larger than this number
+        :returns: (exact) angular position of (multiple) images ra_pos, dec_pos in units of angle
+        :raises: AttributeError, KeyError
+        """
+        if not self.use_gravlens:
+            self.init_gravlens(kwargs_lens)
+
+        gravlens = self.gravlens
+
+        sol = gravlens.solve(sourcePos_x, sourcePos_y)
+
+        if include_caustics:
+            x_mins, y_mins = sol[0].T
+            caustics = sol[1]
+        else:
+            x_mins, y_mins = sol.T
+
+        x_mins, y_mins = image_util.findOverlap(x_mins, y_mins, precision_limit)
+        if arrival_time_sort is True:
+            x_mins, y_mins = self.sort_arrival_times(x_mins, y_mins, kwargs_lens)
+        #print("calculated", x_mins, y_mins, "for", sourcePos_x, sourcePos_y)
+        #print(x_mins, y_mins)
+        return ((x_mins, y_mins), caustics) if include_caustics else x_mins, y_mins
+
+    def image_position_from_source2(self, *args, **kwargs):
+        print("lenss")
+        lensssol = self.image_position_from_source(*args, **kwargs)
+        print("gravpy")
+        gravpysol = self.image_position_gravpy(*args, **kwargs)
+        print('done')
+        print(lensssol, gravpysol)
+        return gravpysol
+
 
     def image_position_from_source(self, sourcePos_x, sourcePos_y, kwargs_lens, min_distance=0.1, search_window=10,
                                    precision_limit=10**(-10), num_iter_max=100, arrival_time_sort=True,
