@@ -87,24 +87,6 @@ class DyPolyChordSampler(NestedSampler):
         self._rm_output = remove_output_dir
         self._has_warned = False
 
-    def prior(self, cube):
-        """
-        compute the mapping between the unit cube and parameter cube
-
-        'copy=True' below because cube can not be modified in-place (read-only)
-
-        :param cube: unit hypercube, sampled by the algorithm
-        :return: hypercube in parameter space
-        """
-        if self.prior_type == 'gaussian':
-            p = utils.cube2args_gaussian(cube, self.lowers, self.uppers,
-                                         self.means, self.sigmas, self.n_dims,
-                                         copy=True)
-        elif self.prior_type == 'uniform':
-            p = utils.cube2args_uniform(cube, self.lowers, self.uppers, 
-                                        self.n_dims, copy=True)
-        return p
-
     def log_likelihood(self, args):
         """
         compute the log-likelihood given list of parameters

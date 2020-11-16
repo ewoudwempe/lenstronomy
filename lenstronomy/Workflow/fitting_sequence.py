@@ -274,7 +274,7 @@ class FittingSequence(object):
                         polychord_settings={},
                         dypolychord_seed_increment=200,
                         output_dir="nested_sampling_chains",
-                        dynesty_bound='multi', dynesty_sample='auto', kwargs_sampler={}):
+                        dynesty_bound='multi', dynesty_sample='auto', ultranest_stepsampler=None, kwargs_sampler={}):
         """
         Run (Dynamic) Nested Sampling algorithms, depending on the type of algorithm.
 
@@ -350,7 +350,8 @@ class FittingSequence(object):
                                      width_scale=width_scale,
                                      sigma_scale=sigma_scale,
                                      kwargs=kwargs_sampler,
-                                     static=static)
+                                     static=static,
+                                     stepsampler=ultranest_stepsampler)
 
             samples, means, logZ, logZ_err, logL, results_object = sampler.run(kwargs_run)
         else:
@@ -481,7 +482,7 @@ class FittingSequence(object):
         self._updateManager.fix_not_computed(free_bands=free_bands)
 
     def _prepare_sampling(self, prior_type):
-        if prior_type == 'gaussian':
+        if prior_type == 'gaussian' or callable(prior_type):
             mean_start = self.param_class.kwargs2args(**self._updateManager.parameter_state)
             sigma_start = self.param_class.kwargs2args(**self._updateManager.sigma_kwargs)
             mean_start  = np.array(mean_start)

@@ -74,7 +74,7 @@ class MultiNestSampler(NestedSampler):
         self._rm_output = remove_output_dir
         self._has_warned = False
 
-    def prior(self, cube, ndim, nparams):
+    def prior_multinest(self, cube, ndim, nparams):
         """
         compute the mapping between the unit cube and parameter cube (in-place)
 
@@ -83,11 +83,9 @@ class MultiNestSampler(NestedSampler):
         :param nparams: total number of parameters
         """
         cube_py = self._multinest2python(cube, ndim)
-        if self.prior_type == 'gaussian':
-            utils.cube2args_gaussian(cube_py, self.lowers, self.uppers, 
-                                     self.means, self.sigmas, self.n_dims)
-        elif self.prior_type == 'uniform':
-            utils.cube2args_uniform(cube_py, self.lowers, self.uppers, self.n_dims)
+
+        cube_py[:] = self.prior(cube_py)
+
         for i in range(self.n_dims):
             cube[i] = cube_py[i]
 
@@ -122,7 +120,7 @@ class MultiNestSampler(NestedSampler):
         print("parameter names :", self.param_names)
         
         if self._pymultinest_installed:
-            self._pymultinest.run(self.log_likelihood, self.prior, self.n_dims,
+            self._pymultinest.run(self.log_likelihood, self.prior_multinest, self.n_dims,
                                   outputfiles_basename=self.files_basename,
                                   resume=False, verbose=True,
                                   init_MPI=self._use_mpi, **kwargs_run)

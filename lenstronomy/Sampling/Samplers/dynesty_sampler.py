@@ -49,26 +49,9 @@ class DynestySampler(NestedSampler):
 
         # create the Dynesty sampler
         sampler = dynesty.NestedSampler if static else dynesty.DynamicNestedSampler
-        self._sampler = sampler(self.log_likelihood, self.prior, self.n_dims, bound=bound, sample=sample, pool=pool, **kwargs)
+        self._sampler = sampler(self.log_likelihood, self.prior, self.n_dims, pool=pool, **kwargs)
         self._has_warned = False
 
-    def prior(self, u):
-        """
-        compute the mapping between the unit cube and parameter cube
-
-        :param u: unit hypercube, sampled by the algorithm
-        :return: hypercube in parameter space
-        """
-        if self.prior_type == 'gaussian':
-            p = utils.cube2args_gaussian(u, self.lowers, self.uppers,
-                                         self.means, self.sigmas, self.n_dims,
-                                         copy=True)
-        elif self.prior_type == 'uniform':
-            p = utils.cube2args_uniform(u, self.lowers, self.uppers, 
-                                        self.n_dims, copy=True)
-        else:
-            raise ValueError('prior type %s not supported! Chose "gaussian" or "uniform".')
-        return p
 
     def log_likelihood(self, x):
         """

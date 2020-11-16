@@ -34,19 +34,33 @@ class NestedSampler(object):
                 raise ValueError("For gaussian prior type, means and sigmas are required")
             self.means, self.sigmas  = prior_means, prior_sigmas * sigma_scale
             self.lowers, self.uppers = lowers, uppers
+        elif callable(prior_type):
+            self.means, self.sigmas  = prior_means, prior_sigmas * sigma_scale
+            self.lowers, self.uppers = lowers, uppers
         elif prior_type != 'uniform':
             raise ValueError("Sampling type {} not supported".format(prior_type))
         self.prior_type = prior_type
         self._has_warned = False
 
-    def prior(self, *args, **kwargs):
+
+    def prior(self, u):
         """
         compute the mapping between the unit cube and parameter cube
 
         :param u: unit hypercube, sampled by the algorithm
         :return: hypercube in parameter space
         """
-        raise NotImplementedError("Method not be implemented in base class")
+        # Only pymultinest needs its own format
+        if self.prior_type == 'gaussian':
+            p = utils.cube2args_gaussian(u, self.lowers, self.uppers,
+                                         self.means, self.sigmas, self.n_dims,
+                                         copy=True)
+        elif self.prior_type == 'uniform':
+            p = utils.cube2args_uniform(u, self.lowers, self.uppers,
+                                        self.n_dims, copy=True)
+        elif callable(self.prior_type):
+            p = self.prior_type(u, self.param_names, self.lowers, self.uppers, self.means, self.sigmas, self.n_dims)
+        return p
 
     def log_likelihood(self, *args, **kwargs):
         """

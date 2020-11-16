@@ -15,7 +15,7 @@ class UltranestSampler(NestedSampler):
     """
 
     def __init__(self, likelihood_module, prior_type='uniform', 
-                 prior_means=None, prior_sigmas=None, width_scale=1, sigma_scale=1, static=False, kwargs={}):
+                 prior_means=None, prior_sigmas=None, width_scale=1, sigma_scale=1, static=False, kwargs={}, stepsampler=None):
         """
         :param likelihood_module: likelihood_module like in likelihood.py (should be callable)
         :param prior_type: 'uniform' of 'gaussian', for converting the unit hypercube to param cube
@@ -34,25 +34,11 @@ class UltranestSampler(NestedSampler):
         sampler = ultranest.NestedSampler if static else ultranest.ReactiveNestedSampler 
 
         self._sampler = sampler(self.param_names, self.log_likelihood, self.prior, **kwargs)
+        # create step sampler:
+        if stepsampler is not None:
+            print("using the custom stepsampler: ", stepsampler)
+            self._sampler.pathsampler = stepsampler
         self._has_warned = False
-
-    def prior(self, u):
-        """
-        compute the mapping between the unit cube and parameter cube
-
-        :param u: unit hypercube, sampled by the algorithm
-        :return: hypercube in parameter space
-        """
-        if self.prior_type == 'gaussian':
-            p = utils.cube2args_gaussian(u, self.lowers, self.uppers,
-                                         self.means, self.sigmas, self.n_dims,
-                                         copy=True)
-        elif self.prior_type == 'uniform':
-            p = utils.cube2args_uniform(u, self.lowers, self.uppers, 
-                                        self.n_dims, copy=True)
-        else:
-            raise ValueError('prior type %s not supported! Chose "gaussian" or "uniform".')
-        return p
 
     def log_likelihood(self, x):
         """
