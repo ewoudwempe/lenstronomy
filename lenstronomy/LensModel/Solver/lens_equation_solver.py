@@ -3,14 +3,17 @@ import lenstronomy.Util.util as util
 import lenstronomy.Util.image_util as image_util
 from scipy.optimize import minimize
 from lenstronomy.LensModel.gravpy import Gravlens
+from numba import njit
 
 __all__ = ['LensEquationSolver']
 
+@njit(cache=True)
 def _get_fraction(from_value, to_value, level):
     if (to_value == from_value):
         return 0
     return ((level - from_value) / (to_value - from_value))
 
+@njit(cache=True)
 def marching_squares(cells, values):
     # Inspired by scikit-image implementation.
     # Cells: N*4*2
@@ -128,6 +131,11 @@ class GravlensOverloaded(Gravlens):
         mine = [deflectionvector, DistMatrix]
         return mine
 
+    def minmapping(self, v):
+        m, h = self.mapping(v)
+        toret = m[0]**2+m[1]**2, 2 * h[::-1,::-1].dot(m)
+        return toret
+
     def carmapping(self, x, y):
         return np.array(self.lensModel.ray_shooting(x, y, self.kwargs_lens)).T
 
@@ -137,7 +145,8 @@ class GravlensOverloaded(Gravlens):
         polargrids = args[1]
         self.transformations((x, y), polargrids)
 
-        mags = self.magnification(*np.moveaxis(self.critical_cells, -1, 0))
+        a = np.moveaxis(self.critical_cells, -1, 0)
+        mags = self.magnification(a[0].flatten(), a[1].flatten()).reshape(a.shape[1:])
         fil = np.abs(mags[:].min(axis=-1)) > 1
         means = self.critical_cells.mean(axis=1)[fil]
         if 'center_x' in self.kwargs_lens[0]:
@@ -163,6 +172,15 @@ class GravlensOverloaded(Gravlens):
         else:
             return self.realpos
 
+    def get_guess_positions(self, x_source, y_source):
+        self.image = np.array([x_source, y_source])
+
+        if self.caustics is not None:
+            guesses = self.find_source(onlyguess=True)
+        else:
+            guesses = self.run(onlyguess=True)
+        return guesses
+
     def validate_arguments(self):
         pass
 
@@ -171,7 +189,7 @@ class LensEquationSolver(object):
     """
     class to solve for image positions given lens model and source position
     """
-    def __init__(self, lensModel, use_gravlens=False, kwargs_lens=None, gravpy_onlycaustics=False):
+    def __init__(self, lensModel, use_gravlens=False, kwargs_lens=None, gravpy_onlycaustics=False, carargs=None, polarargs=None):
         """
         This class must contain the following definitions (with same syntax as the standard LensModel() class:
         def ray_shooting()
@@ -184,16 +202,22 @@ class LensEquationSolver(object):
         self.lensModel = lensModel
         self.use_gravlens=use_gravlens
         self.gravpy_onlycaustics = gravpy_onlycaustics
+        self.carargs = carargs
+        self.polarargs = polarargs
+        #if gravpy_onlycaustics and polarargs is None:
+            #polarargs = [(0.,0.),1,2,0,0]
         if self.use_gravlens:
-            self.init_gravlens(kwargs_lens)
+            self.init_gravlens(kwargs_lens, carargs=carargs, polarargs=polarargs)
 
-    def init_gravlens(self, kwargs_lens):
+    def init_gravlens(self, kwargs_lens, carargs=None, polarargs=None):
         thetae = kwargs_lens[0]['theta_E']
         x_center, y_center = kwargs_lens[0]['center_x'], kwargs_lens[0]['center_y']
 
-        carargs = [[-thetae*4 + x_center, thetae*4 + x_center, thetae/20],
-                   [-thetae*4 + y_center, thetae*4 + y_center, thetae/20]]
-        polarargs = [[(x_center, y_center), thetae/100, thetae*100, 100, 10]]
+        if carargs is None:
+            carargs = [[-thetae*4 + x_center, thetae*4 + x_center, thetae/8],
+                       [-thetae*4 + y_center, thetae*4 + y_center, thetae/8]]
+        if polarargs is None:
+            polarargs = [[(x_center, y_center), thetae/100, thetae*100, 50, 10]]
         self.gravlens = GravlensOverloaded(self.lensModel, kwargs_lens, carargs, polarargs, make_dpoints=(not self.gravpy_onlycaustics))
 
     def image_position_stochastic(self, source_x, source_y, kwargs_lens, search_window=10,
@@ -305,17 +329,38 @@ class LensEquationSolver(object):
         :raises: AttributeError, KeyError
         """
         if not self.use_gravlens:
-            self.init_gravlens(kwargs_lens)
+            print("initialing gravlens as needed")
+            self.init_gravlens(kwargs_lens, self.carargs, self.polarargs)
 
-        gravlens = self.gravlens
 
-        sol = gravlens.solve(sourcePos_x, sourcePos_y)
-
-        if include_caustics:
-            x_mins, y_mins = sol[0].T
-            caustics = sol[1]
+        if False:
+            sol = self.gravlens.solve(sourcePos_x, sourcePos_y)
+            if include_caustics:
+                x_mins, y_mins = sol[0].T
+                caustics = sol[1]
+            else:
+                x_mins, y_mins = sol.T
         else:
-            x_mins, y_mins = sol.T
+
+            # if self.include_caustics:
+            # critx, crity = args[2]
+            # causticsx,causticsy = args[3]
+            # self.caustics = [[critx,crity],[causticsx,causticsy]]
+            # else:
+
+            candidates = self.gravlens.get_guess_positions(sourcePos_x, sourcePos_y)
+            candidates = np.array(candidates)
+            #print("Candidates:", candidates.shape)
+            x_mins, y_mins = candidates.T
+            x_mins, y_mins, solver_precision = self._find_gradient_decent(x_mins, y_mins, sourcePos_x, sourcePos_y, kwargs_lens,
+                                                                          precision_limit, num_iter_max, verbose=verbose,
+                                                                          min_distance=min_distance, non_linear=non_linear)
+
+            # only select iterative results that match the precision limit
+            x_mins = x_mins[solver_precision <= precision_limit]
+            y_mins = y_mins[solver_precision <= precision_limit]
+
+
 
         x_mins, y_mins = image_util.findOverlap(x_mins, y_mins, precision_limit)
         if arrival_time_sort is True:
@@ -380,6 +425,7 @@ class LensEquationSolver(object):
         y_mins = np.append(y_mins, np.random.uniform(low=-search_window / 2 + y_center,
                                                      high=search_window / 2 + y_center, size=num_random))
         # iterative solving of the lens equation for the selected grid points
+        #print("Candidates:", x_mins.shape, y_mins.shape)
         x_mins, y_mins, solver_precision = self._find_gradient_decent(x_mins, y_mins, sourcePos_x, sourcePos_y, kwargs_lens,
                                                                       precision_limit, num_iter_max, verbose=verbose,
                                                                       min_distance=min_distance, non_linear=non_linear)

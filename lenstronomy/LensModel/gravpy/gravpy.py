@@ -12,7 +12,7 @@ from . import plots
 
 class Gravlens:
     def __init__(self, carargs, polargs, modelargs, show_plot=True, include_caustics=True,
-                 image=np.random.uniform(-1, 1, 2), recurse_depth=3, caustics_depth=8, logging_level='info'):
+                 image=np.random.uniform(-1, 1, 2), recurse_depth=6, caustics_depth=5, logging_level='info'):
         self.carargs = carargs
         self.xspacing = carargs[0][2]
         self.yspacing = carargs[1][2]
@@ -25,7 +25,6 @@ class Gravlens:
         self.caustics_depth = caustics_depth
         self.cache = {}
         self.make_dpoints = True
-
         levels = {'critical': 50, 'error': 40, 'warning': 30, 'info': 20, 'debug': 10, 'notset': 0}
         if isinstance(logging_level, str):
             logging_level = levels[logging_level.lower()]
@@ -339,6 +338,7 @@ class Gravlens:
         polstack = np.array(pol_ranges)
         #print(carstack.shape, polstack.shape)
         stack = np.concatenate((carstack, polstack), axis=0)  # combine list of cartesian and polar pairs
+        #print('stack:', stack.shape, carstack.shape, polstack.shape)
         transformed = self.carmapping(stack[:, 0], stack[:, 1])  # transform pairs from image to source plane
         if self.include_caustics:
             criticalx, criticaly = self.critical_lines
@@ -354,7 +354,7 @@ class Gravlens:
         self.stack = stack
         self.transformed = transformed
 
-    def find_source(self):
+    def find_source(self, onlyguess=False):
         """Employs the algorithm in the 'trinterior' module to find the positions of the image in the image plane.
         Returns the coordinate pair(s) in an array.
         """
@@ -370,13 +370,18 @@ class Gravlens:
         sourcepos = np.mean(sourcetri,
                             axis=1)  # list of the centroid coordinates for the triangles which contain the point 'image'
         # use centroid coordinates as guesses for the actual root finding algorithm
+        if onlyguess:
+            return sourcepos
+        #realpos = np.array(
+            #[(op.root(self.mapping, v, jac=True, tol=1e-8)).x for v in sourcepos]
+        #)
         realpos = np.array(
-            [(op.root(self.mapping, v, jac=True, tol=1e-8)).x for v in sourcepos]
+            [(op.minimize(self.minmapping, v, jac=True, tol=1e-8, method='CG')).x for v in sourcepos]
         )
 
         self.realpos = realpos
 
-    def run(self):
+    def run(self, onlyguess=False):
         '''The master command that wraps and executes all the commands to run a gridding example. Use this function (excusively) when using this module.'''
 
         self.validate_arguments()
@@ -394,7 +399,9 @@ class Gravlens:
 
         self.transformations((x, y), polargrids)
 
-        self.find_source()
+        s = self.find_source(onlyguess=onlyguess)
+        if onlyguess:
+            return s
 
         if self.show_plot:
             self.plot()
