@@ -167,7 +167,7 @@ class ImageLinearFit(ImageModel):
 
     def likelihood_data_given_model(self, kwargs_lens=None, kwargs_source=None, kwargs_lens_light=None, kwargs_ps=None,
                                     kwargs_extinction=None, kwargs_special=None, source_marg=False, linear_prior=None,
-                                    check_positive_flux=False):
+                                    check_positive_flux=False, return_amps=False):
         """
 
         computes the likelihood of the data given a model
@@ -187,11 +187,11 @@ class ImageLinearFit(ImageModel):
         """
         return self._likelihood_data_given_model(kwargs_lens, kwargs_source, kwargs_lens_light, kwargs_ps,
                                                  kwargs_extinction, kwargs_special, source_marg,
-                                                 linear_prior=linear_prior, check_positive_flux=check_positive_flux)
+                                                 linear_prior=linear_prior, check_positive_flux=check_positive_flux, return_amps=return_amps)
 
     def _likelihood_data_given_model(self, kwargs_lens=None, kwargs_source=None, kwargs_lens_light=None, kwargs_ps=None,
                                      kwargs_extinction=None, kwargs_special=None, source_marg=False, linear_prior=None,
-                                     check_positive_flux=False):
+                                     check_positive_flux=False, return_amps=False):
         """
 
         computes the likelihood of the data given a model
@@ -222,7 +222,10 @@ class ImageLinearFit(ImageModel):
             bool = self.check_positive_flux(kwargs_source, kwargs_lens_light, kwargs_ps)
             if bool is False:
                 logL -= 10**5
-        return logL
+        if return_amps:
+            return logL, (param, cov_matrix)
+        else:
+            return logL
 
     def num_param_linear(self, kwargs_lens, kwargs_source, kwargs_lens_light, kwargs_ps):
         """

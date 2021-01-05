@@ -73,7 +73,7 @@ class MultiLinear(MultiDataBase):
 
     def likelihood_data_given_model(self, kwargs_lens=None, kwargs_source=None, kwargs_lens_light=None, kwargs_ps=None,
                                     kwargs_extinction=None, kwargs_special=None, source_marg=False, linear_prior=None,
-                                    check_positive_flux=False):
+                                    check_positive_flux=False, return_amps=False):
         """
         computes the likelihood of the data given a model
         This is specified with the non-linear parameters and a linear inversion and prior marginalisation.
@@ -88,14 +88,25 @@ class MultiLinear(MultiDataBase):
         """
         # generate image
         logL = 0
+        amps = []
         if linear_prior is None:
             linear_prior = [None for i in range(self._num_bands)]
         for i in range(self._num_bands):
-            if self._compute_bool[i] is True:
-                logL += self._imageModel_list[i].likelihood_data_given_model(kwargs_lens, kwargs_source,
+            if self._compute_bool[i]:
+                ret  = self._imageModel_list[i].likelihood_data_given_model(kwargs_lens, kwargs_source,
                                                                              kwargs_lens_light, kwargs_ps,
                                                                              kwargs_extinction, kwargs_special,
                                                                              source_marg=source_marg,
                                                                              linear_prior=linear_prior[i],
-                                                                             check_positive_flux=check_positive_flux)
-        return logL
+                                                                             check_positive_flux=check_positive_flux,
+                                                                             return_amps=return_amps)
+                if return_amps:
+                    ll, (amp, cov_amp) = ret
+                    amps.append((amp, cov_amp))
+                else:
+                    ll = ret
+                logL += ll
+        if return_amps:
+            return logL, amps
+        else:
+            return logL

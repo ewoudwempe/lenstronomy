@@ -121,7 +121,7 @@ class JointLinear(MultiLinear):
 
     def likelihood_data_given_model(self, kwargs_lens=None, kwargs_source=None, kwargs_lens_light=None, kwargs_ps=None,
                                     kwargs_extinction=None, kwargs_special=None, source_marg=False, linear_prior=None,
-                                    check_positive_flux=False):
+                                    check_positive_flux=False, return_amps=False):
         """
         computes the likelihood of the data given a model
         This is specified with the non-linear parameters and a linear inversion and prior marginalisation.
@@ -143,7 +143,7 @@ class JointLinear(MultiLinear):
         logL = 0
         index = 0
         for i in range(self._num_bands):
-            if self._compute_bool[i] is True:
+            if self._compute_bool[i]:
                 logL += self._imageModel_list[i].Data.log_likelihood(im_sim_list[index], self._imageModel_list[i].likelihood_mask, model_error_list[index])
                 index += 1
         if cov_matrix is not None and source_marg:
@@ -153,4 +153,7 @@ class JointLinear(MultiLinear):
             bool = self._imageModel_list[0].check_positive_flux(kwargs_source, kwargs_lens_light, kwargs_ps)
             if bool is False:
                 logL -= 10 ** 5
-        return logL
+        if return_amps:
+            return logL, (param, cov_matrix)
+        else:
+            return logL
