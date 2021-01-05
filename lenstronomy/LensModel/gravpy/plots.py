@@ -21,7 +21,10 @@ def source_image_planes(stack,transformed,
 
     plt.triplot(stack[:, 0], stack[:, 1], simplices, color='blue', zorder=1)  # plot of the Delaunay Triangulization
 
-    plt.scatter(*list(zip(*realpos)), marker='*', color='green', s=100, zorder=2)
+    try:
+        plt.scatter(*list(zip(*realpos)), marker='*', color='green', s=100, zorder=2)
+    except:
+        pass
 
     plt.subplot(1, 2, 2)  # source plane
     plt.title('Source Plane')

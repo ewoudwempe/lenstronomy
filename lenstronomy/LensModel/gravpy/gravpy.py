@@ -12,7 +12,7 @@ from . import plots
 
 class Gravlens:
     def __init__(self, carargs, polargs, modelargs, show_plot=True, include_caustics=True,
-                 image=np.random.uniform(-1, 1, 2), recurse_depth=6, caustics_depth=5, logging_level='info'):
+                 image=np.random.uniform(-1, 1, 2), recurse_depth=4, caustics_depth=2, logging_level='warning'):
         self.carargs = carargs
         self.xspacing = carargs[0][2]
         self.yspacing = carargs[1][2]
@@ -83,7 +83,7 @@ class Gravlens:
         phiarr = self.potdefmag(x, y)
         phixx, phiyy, phixy = phiarr[3:6]
 
-        return (1 - phixx) * (1 - phiyy) - phixy ** 2
+        return 1/((1 - phixx) * (1 - phiyy) - phixy ** 2)
 
     def memoize(obj):
 
@@ -132,10 +132,9 @@ class Gravlens:
 
         return memoizer
 
-    @memoize
+    #@memoize
     def potdefmag(self, xi, yi, numexpr=True):
         '''The wrapper used to find the phi values given models' parameters. The output is (6,x) where x is the length of the x,y arguments given in the invocation. This command seeks out the correct module to contact for each model calculation.'''
-        phi2Darray = []
 
         # turn scalars into vectors of length 1
         x = np.atleast_1d(xi)
@@ -145,11 +144,14 @@ class Gravlens:
 
         self.logger.debug("Evaluating %d point(s)..." % x.size)
 
+        phiarray = np.zeros((6, *x.shape))
         for mass_component in self.modelargs:
-            phiarray = mass_component.phiarray(x, y, numexpr=numexpr)
-            phi2Darray.append(phiarray)
+            if hasattr(mass_component, 'modelargs'):
+                mass_component.phiarray(x, y, mass_component.modelargs, phiarray)
+            else:
+                phiarray += mass_component.phiarray(x, y, numexpr=numexpr)
 
-        return np.sum(phi2Darray, axis=0)
+        return phiarray
 
     def mag_of_cells(self, cells):
         '''Takes a list of cells and returns the magnification values for each point in the cells. Retains shape and order of the original list of cells.'''
@@ -208,16 +210,21 @@ class Gravlens:
         p1--p13---p3         |
         """
         p1, p2, p3, p4 = np.transpose(cells, [1, 0, 2])
-        p24 = p4 + [-dx, 0]
-        p12 = p2 + [0, -dy]
+        #p24 = p4 + [-dx, 0]
+        #p12 = p2 + [0, -dy]
+        #p13 = p1 + [dx, 0]
+        #p34 = p3 + [0, dy]
+        p0 = p1 + [dx, dy]
+        p24 = p2 + [dx, 0]
+        p12 = p1 + [0, dy]
         p13 = p1 + [dx, 0]
         p34 = p3 + [0, dy]
-        p0 = p1 + [dx, dy]
 
         quadrant1 = [p0, p24, p34, p4]
         quadrant2 = [p12, p2, p0, p24]
         quadrant3 = [p1, p12, p13, p0]
         quadrant4 = [p13, p0, p3, p34]
+
 
         return (np.transpose(np.hstack((quadrant1, quadrant2, quadrant3, quadrant4)), [1, 0, 2])
                 , (p0, p12, p13, p34, p24))  # need these for computing magnification values
@@ -255,8 +262,15 @@ class Gravlens:
 
         grid_pairs = np.column_stack((np.tile(xran, len(yran)), np.repeat(yran, len(xran))))
 
-        gridm_x_y = np.vstack((np.dstack((xs, xs, xs + self.xspacing, xs + self.xspacing)),
-                               np.dstack((ys, ys + self.yspacing, ys, ys + self.yspacing))))
+        #gridm_x_y = np.vstack((np.dstack((xs, xs, xs + self.xspacing, xs + self.xspacing)),
+                               #np.dstack((ys, ys + self.yspacing, ys, ys + self.yspacing))))
+
+        gridm_x_y = np.array([np.meshgrid(xran[:-1], yran[:-1], indexing='xy'),
+                       np.meshgrid(xran[:-1], yran[1:], indexing='xy'),
+                       np.meshgrid(xran[1:], yran[:-1], indexing='xy'),
+                       np.meshgrid(xran[1:], yran[1:], indexing='xy')]).reshape(4, 2, -1).transpose(1, 2, 0)
+
+        #print('uniqe', np.unique(gridm_x_y))
         cells = np.transpose(gridm_x_y, [1, 2, 0])
 
         # we don't want to subdivide the first iteration
@@ -300,6 +314,7 @@ class Gravlens:
 
         x = np.arange(xlowerend, xupperend + xspacing, xspacing)
         y = np.arange(ylowerend, yupperend + yspacing, yspacing)
+        #print('size', x.shape)
 
         # supplemental polar grid(s)
         polargrids = np.reshape([], (0, 2))
@@ -372,12 +387,12 @@ class Gravlens:
         # use centroid coordinates as guesses for the actual root finding algorithm
         if onlyguess:
             return sourcepos
-        #realpos = np.array(
-            #[(op.root(self.mapping, v, jac=True, tol=1e-8)).x for v in sourcepos]
-        #)
         realpos = np.array(
-            [(op.minimize(self.minmapping, v, jac=True, tol=1e-8, method='CG')).x for v in sourcepos]
+            [(op.root(self.mapping, v, jac=True, tol=1e-8)).x for v in sourcepos]
         )
+        #realpos = np.array(
+            #[(op.minimize(self.minmapping, v, jac=True, tol=1e-8, method='CG')).x for v in sourcepos]
+        #)
 
         self.realpos = realpos
 

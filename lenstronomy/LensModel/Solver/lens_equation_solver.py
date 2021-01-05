@@ -2,194 +2,18 @@ import numpy as np
 import lenstronomy.Util.util as util
 import lenstronomy.Util.image_util as image_util
 from scipy.optimize import minimize
-from lenstronomy.LensModel.gravpy import Gravlens
-from numba import njit
+from lenstronomy.LensModel.Solver.marching_squares import marching_squares, _assemble_contours
+from lenstronomy.LensModel.Solver.gravlens_overloaded import GravlensOverloaded
+from lenstronomy.Util.param_util import ellipticity2phi_q
 
 __all__ = ['LensEquationSolver']
-
-@njit(cache=True)
-def _get_fraction(from_value, to_value, level):
-    if (to_value == from_value):
-        return 0
-    return ((level - from_value) / (to_value - from_value))
-
-@njit(cache=True)
-def marching_squares(cells, values):
-    # Inspired by scikit-image implementation.
-    # Cells: N*4*2
-    # Values: N*4
-    segments=[]
-    for square, m in zip(cells, values):
-        #ul = array[r0, c0]
-        #ur = array[r0, c1]
-        #ll = array[r1, c0]
-        #lr = array[r1, c1]
-        level=0
-        ul = m[1]
-        ur = m[3]
-        ll = m[0]
-        lr = m[2]
-        #ul = m[0]
-        #ur = m[1]
-        #ll = m[2]
-        #lr = m[3]
-
-
-        # Skip this square if any of the four input values are NaN.
-        if np.any(np.isnan(square)):
-            continue
-
-        square_case = 0
-        if (ul > level): square_case += 1
-        if (ur > level): square_case += 2
-        if (ll > level): square_case += 4
-        if (lr > level): square_case += 8
-
-        if square_case in [0, 15]:
-            # only do anything if there's a line passing through the
-            # square. Cases 0 and 15 are entirely below/above the contour.
-            continue
-        r0, c0 = square[0]
-        r1, c1 = square[3]
-
-        top = r0 + _get_fraction(ul, ur, level)*(r1-r0), c1
-        bottom = r0 + _get_fraction(ll, lr, level)*(r1-r0), c0
-        left = r0, c0 + _get_fraction(ll, ul, level)*(c1-c0)
-        right = r1, c0 + _get_fraction(lr, ur, level)*(c1-c0)
-
-        if (square_case == 1):
-            # top to left
-            segments.append((top, left))
-        elif (square_case == 2):
-            # right to top
-            segments.append((right, top))
-        elif (square_case == 3):
-            # right to left
-            segments.append((right, left))
-        elif (square_case == 4):
-            # left to bottom
-            segments.append((left, bottom))
-        elif (square_case == 5):
-            # top to bottom
-            segments.append((top, bottom))
-        elif (square_case == 6):
-            raise ValueError("Bad marching squares topology - something wrong with grid.")
-        elif (square_case == 7):
-            # right to bottom
-            segments.append((right, bottom))
-        elif (square_case == 8):
-            # bottom to right
-            segments.append((bottom, right))
-        elif (square_case == 9):
-            raise ValueError("Bad marching squares topology - something wrong with grid.")
-        elif (square_case == 10):
-            # bottom to top
-            segments.append((bottom, top))
-        elif (square_case == 11):
-            # bottom to left
-            segments.append((bottom, left))
-        elif (square_case == 12):
-            # lef to right
-            segments.append((left, right))
-        elif (square_case == 13):
-            # top to right
-            segments.append((top, right))
-        elif (square_case == 14):
-            # left to top
-            segments.append((left, top))
-    segments.append(segments[0])
-    return np.array(segments)
-
-cart2pol = lambda x: (np.sqrt(x[0]**2+x[1]**2), np.arctan2(x[1],x[0])%(2*np.pi))
-pol2cart = lambda x: (x[0]*np.cos(x[1]), x[0]*np.sin(x[1]))
-
-class GravlensOverloaded(Gravlens):
-    def __init__(self, lensModel, kwargs_lens, carargs, polarargs, make_dpoints=True):
-        self.lensModel = lensModel
-        self.kwargs_lens = kwargs_lens
-        self.transformed = None # For checking if we generated caustics later
-        self.caustics = None
-
-        super().__init__(carargs, polarargs, None, image=None, logging_level='info', show_plot=False)
-        self.make_dpoints = make_dpoints
-
-    def relation(self, x, y):
-        mags = self.lensModel.magnification(x, y, self.kwargs_lens)
-        return np.sign(mags)
-
-    def magnification(self, x, y):
-        mags = self.lensModel.magnification(x, y, self.kwargs_lens)
-        return mags
-
-    def mapping(self, v):
-        x_guess, y_guess = v
-        x_mapped, y_mapped = self.lensModel.ray_shooting(x_guess, y_guess, self.kwargs_lens) # Near the center, this code fails, where Keeton's works.
-        f_xx, f_xy, f_yx, f_yy = self.lensModel.hessian(x_guess, y_guess, self.kwargs_lens)
-        DistMatrix = np.array([[1 - f_yy, -f_yx], [-f_xy, 1 - f_xx]]) # - for convention of keeton
-        x_source, y_source = self.image
-        deflectionvector = np.array([x_mapped - x_source, y_mapped - y_source])
-        mine = [deflectionvector, DistMatrix]
-        return mine
-
-    def minmapping(self, v):
-        m, h = self.mapping(v)
-        toret = m[0]**2+m[1]**2, 2 * h[::-1,::-1].dot(m)
-        return toret
-
-    def carmapping(self, x, y):
-        return np.array(self.lensModel.ray_shooting(x, y, self.kwargs_lens)).T
-
-    def get_caustics(self):
-        args = self.generate_ranges()
-        x, y = args[0]
-        polargrids = args[1]
-        self.transformations((x, y), polargrids)
-
-        a = np.moveaxis(self.critical_cells, -1, 0)
-        mags = self.magnification(a[0].flatten(), a[1].flatten()).reshape(a.shape[1:])
-        fil = np.abs(mags[:].min(axis=-1)) > 1
-        means = self.critical_cells.mean(axis=1)[fil]
-        if 'center_x' in self.kwargs_lens[0]:
-            means -= [self.kwargs_lens[0]['center_x'], self.kwargs_lens[0]['center_y']]
-        else:
-            print("warning: not able to properly center the image before calculating the critical curves.")
-
-        rs, phis = cart2pol(np.moveaxis(means, -1, 0))
-        idx_sort = np.argsort(phis)
-        segments = marching_squares(self.critical_cells[fil][idx_sort], 1 / mags[fil][idx_sort])
-        crit_line = segments[:, 0]
-        x_s, y_s = self.lensModel.ray_shooting(*crit_line.T, self.kwargs_lens)
-        return np.array([*crit_line.T, x_s, y_s])
-
-    def solve(self, x_source, y_source, ret_caustics=False):
-        self.image = np.array([x_source, y_source])
-        if self.caustics is not None:
-            self.find_source()
-        else:
-            self.run()
-        if ret_caustics:
-            return self.realpos, self.get_caustics()
-        else:
-            return self.realpos
-
-    def get_guess_positions(self, x_source, y_source):
-        self.image = np.array([x_source, y_source])
-
-        if self.caustics is not None:
-            guesses = self.find_source(onlyguess=True)
-        else:
-            guesses = self.run(onlyguess=True)
-        return guesses
-
-    def validate_arguments(self):
-        pass
 
 
 class LensEquationSolver(object):
     """
     class to solve for image positions given lens model and source position
     """
-    def __init__(self, lensModel, use_gravlens=False, kwargs_lens=None, gravpy_onlycaustics=False, carargs=None, polarargs=None):
+    def __init__(self, lensModel, use_gravlens=False, kwargs_lens=None, gravpy_onlycaustics=False, carargs=None, polarargs=None, overload_lenscalcs=True, **kwargs_gravlens):
         """
         This class must contain the following definitions (with same syntax as the standard LensModel() class:
         def ray_shooting()
@@ -204,21 +28,22 @@ class LensEquationSolver(object):
         self.gravpy_onlycaustics = gravpy_onlycaustics
         self.carargs = carargs
         self.polarargs = polarargs
-        #if gravpy_onlycaustics and polarargs is None:
-            #polarargs = [(0.,0.),1,2,0,0]
+        self.overload_lenscalcs = overload_lenscalcs
         if self.use_gravlens:
-            self.init_gravlens(kwargs_lens, carargs=carargs, polarargs=polarargs)
+            self.init_gravlens(kwargs_lens, carargs=carargs, polarargs=polarargs, **kwargs_gravlens)
 
-    def init_gravlens(self, kwargs_lens, carargs=None, polarargs=None):
-        thetae = kwargs_lens[0]['theta_E']
+    def init_gravlens(self, kwargs_lens, carargs=None, polarargs=None, **kwargs_gravlens):
+        phi, q = ellipticity2phi_q(kwargs_lens[0]['e1'], kwargs_lens[0]['e2'])
+        maxradius = kwargs_lens[0]['theta_E']/np.sqrt(q)
+        minradius = kwargs_lens[0]['theta_E']*np.sqrt(q)
         x_center, y_center = kwargs_lens[0]['center_x'], kwargs_lens[0]['center_y']
 
         if carargs is None:
-            carargs = [[-thetae*4 + x_center, thetae*4 + x_center, thetae/8],
-                       [-thetae*4 + y_center, thetae*4 + y_center, thetae/8]]
+            carargs = [[-maxradius*1.5 + x_center, maxradius*1.5 + x_center, minradius/2],
+                       [-maxradius*1.5 + y_center, maxradius*1.5 + y_center, minradius/2]]
         if polarargs is None:
-            polarargs = [[(x_center, y_center), thetae/100, thetae*100, 50, 10]]
-        self.gravlens = GravlensOverloaded(self.lensModel, kwargs_lens, carargs, polarargs, make_dpoints=(not self.gravpy_onlycaustics))
+            polarargs = [[(x_center, y_center), minradius/1000, maxradius*5, 40, 50]]
+        self.gravlens = GravlensOverloaded(self.lensModel, kwargs_lens, carargs, polarargs, make_dpoints=(not self.gravpy_onlycaustics), overload_lenscalcs=self.overload_lenscalcs, **kwargs_gravlens)
 
     def image_position_stochastic(self, source_x, source_y, kwargs_lens, search_window=10,
                                   precision_limit=10**(-10), arrival_time_sort=True, x_center=0,
@@ -252,7 +77,7 @@ class LensEquationSolver(object):
                 y_solve.append(result.x[1])
 
         x_mins, y_mins = image_util.findOverlap(x_solve, y_solve, precision_limit)
-        if arrival_time_sort is True:
+        if arrival_time_sort:
             x_mins, y_mins = self.sort_arrival_times(x_mins, y_mins, kwargs_lens)
         self.lensModel.set_dynamic()
         return x_mins, y_mins
@@ -303,10 +128,10 @@ class LensEquationSolver(object):
             
         return x_mins, y_mins, delta_map, pixel_width
 
-    def image_position_gravpy(self, sourcePos_x, sourcePos_y, kwargs_lens, min_distance=0.3, search_window=8,
+    def image_position_gravpy(self, sourcePos_x, sourcePos_y, kwargs_lens, min_distance=0.05, search_window=8,
                                    precision_limit=10**(-10), num_iter_max=100, arrival_time_sort=True,
                                    initial_guess_cut=True, verbose=False, x_center=0, y_center=0, num_random=0,
-                                   non_linear=False, magnification_limit=None, include_caustics=False):
+                                   non_linear=False, magnification_limit=None, include_caustics=False, gravpy_nonlin=False):
         """
         finds image position source position and lens model
 
@@ -329,25 +154,19 @@ class LensEquationSolver(object):
         :raises: AttributeError, KeyError
         """
         if not self.use_gravlens:
-            print("initialing gravlens as needed")
+            # initialing gravlens as needed
             self.init_gravlens(kwargs_lens, self.carargs, self.polarargs)
 
 
-        if False:
+        if gravpy_nonlin:
             sol = self.gravlens.solve(sourcePos_x, sourcePos_y)
             if include_caustics:
                 x_mins, y_mins = sol[0].T
                 caustics = sol[1]
             else:
                 x_mins, y_mins = sol.T
+            x_mins, y_mins = image_util.findOverlap(x_mins, y_mins, precision_limit*100)
         else:
-
-            # if self.include_caustics:
-            # critx, crity = args[2]
-            # causticsx,causticsy = args[3]
-            # self.caustics = [[critx,crity],[causticsx,causticsy]]
-            # else:
-
             candidates = self.gravlens.get_guess_positions(sourcePos_x, sourcePos_y)
             candidates = np.array(candidates)
             #print("Candidates:", candidates.shape)
@@ -357,29 +176,25 @@ class LensEquationSolver(object):
                                                                           min_distance=min_distance, non_linear=non_linear)
 
             # only select iterative results that match the precision limit
-            x_mins = x_mins[solver_precision <= precision_limit]
-            y_mins = y_mins[solver_precision <= precision_limit]
+            x_mins = x_mins[solver_precision <= precision_limit*4]
+            y_mins = y_mins[solver_precision <= precision_limit*4]
 
+            x_mins, y_mins = image_util.findOverlap(x_mins, y_mins, precision_limit*100)
 
-
-        x_mins, y_mins = image_util.findOverlap(x_mins, y_mins, precision_limit)
-        if arrival_time_sort is True:
+        if arrival_time_sort:
             x_mins, y_mins = self.sort_arrival_times(x_mins, y_mins, kwargs_lens)
-        #print("calculated", x_mins, y_mins, "for", sourcePos_x, sourcePos_y)
-        #print(x_mins, y_mins)
+
         return ((x_mins, y_mins), caustics) if include_caustics else x_mins, y_mins
 
-    def image_position_from_source2(self, *args, **kwargs):
-        print("lenss")
-        lensssol = self.image_position_from_source(*args, **kwargs)
-        print("gravpy")
-        gravpysol = self.image_position_gravpy(*args, **kwargs)
-        print('done')
-        print(lensssol, gravpysol)
-        return gravpysol
+    def image_position_from_source(self, *args, solver='lenstronomy', **kwargs):
+        if solver=='gravpy':
+            return self.image_position_gravpy(*args, **kwargs)
+        if solver=='lenstronomy':
+            return self.image_position_lenstronomy(*args, **kwargs)
+        raise ValueError(f"{solver} is not a valid solver.")
 
 
-    def image_position_from_source(self, sourcePos_x, sourcePos_y, kwargs_lens, min_distance=0.1, search_window=10,
+    def image_position_lenstronomy(self, sourcePos_x, sourcePos_y, kwargs_lens, min_distance=0.1, search_window=10,
                                    precision_limit=10**(-10), num_iter_max=100, arrival_time_sort=True,
                                    initial_guess_cut=True, verbose=False, x_center=0, y_center=0, num_random=0,
                                    non_linear=False, magnification_limit=None):
@@ -409,16 +224,16 @@ class LensEquationSolver(object):
         # find pixels in the image plane possibly hosting a solution of the lens equation, related source distances and
         # pixel width
         x_mins, y_mins, delta_map, pixel_width = self.candidate_solutions(sourcePos_x, sourcePos_y, kwargs_lens, min_distance, search_window, verbose, x_center, y_center)
-        if verbose is True:
+        if verbose:
             print("There are %s regions identified that could contain a solution of the lens equation" % len(x_mins))
         if len(x_mins) < 1:
             return x_mins, y_mins
-        if initial_guess_cut is True:
+        if initial_guess_cut:
             mag = np.abs(self.lensModel.magnification(x_mins, y_mins, kwargs_lens))
             mag[mag < 1] = 1
             x_mins = x_mins[delta_map <= min_distance*mag*5]
             y_mins = y_mins[delta_map <= min_distance*mag*5]
-            if verbose is True:
+            if verbose:
                 print("The number of regions that meet the plausibility criteria are %s" % len(x_mins))
         x_mins = np.append(x_mins, np.random.uniform(low=-search_window/2+x_center, high=search_window/2+x_center,
                                                      size=num_random))
@@ -434,7 +249,7 @@ class LensEquationSolver(object):
         y_mins = y_mins[solver_precision <= precision_limit]
         # find redundant solutions within the min_distance criterion
         x_mins, y_mins = image_util.findOverlap(x_mins, y_mins, min_distance)
-        if arrival_time_sort is True:
+        if arrival_time_sort:
             x_mins, y_mins = self.sort_arrival_times(x_mins, y_mins, kwargs_lens)
         if magnification_limit is not None:
             mag = np.abs(self.lensModel.magnification(x_mins, y_mins, kwargs_lens))
@@ -470,7 +285,7 @@ class LensEquationSolver(object):
             x_guess, y_guess, delta, l = self._solve_single_proposal(x_min[i], y_min[i], sourcePos_x, sourcePos_y,
                                                                      kwargs_lens, precision_limit, num_iter_max,
                                                                      max_step=min_distance, non_linear=non_linear)
-            if verbose is True:
+            if verbose:
                 print("Solution found for region %s with required precision at iteration %s" % (i, l))
             x_mins[i] = x_guess
             y_mins[i] = y_guess
@@ -494,7 +309,7 @@ class LensEquationSolver(object):
         :return: x_position, y_position, error in the source plane, steps required (for gradient decent)
         """
         l = 0
-        if non_linear is True:
+        if non_linear:
             xinitial = np.array([x_guess, y_guess])
             result = minimize(self._root, xinitial, args=(kwargs_lens, source_x, source_y), tol=precision_limit ** 2,
                               method='Nelder-Mead')
@@ -593,7 +408,7 @@ class LensEquationSolver(object):
         mag_list = np.array(mag_list)
         x_mins_sorted = util.selectBest(x_mins, mag_list, numImages)
         y_mins_sorted = util.selectBest(y_mins, mag_list, numImages)
-        if arrival_time_sort is True:
+        if arrival_time_sort:
             x_mins_sorted, y_mins_sorted = self.sort_arrival_times(x_mins_sorted, y_mins_sorted, kwargs_lens)
         return x_mins_sorted, y_mins_sorted
 
@@ -613,7 +428,7 @@ class LensEquationSolver(object):
 
         if len(x_mins) <= 1:
             return x_mins, y_mins
-        if self.lensModel.multi_plane is True:
+        if self.lensModel.multi_plane:
             arrival_time = self.lensModel.arrival_time(x_mins, y_mins, kwargs_lens)
         else:
             fermat_pot = self.lensModel.fermat_potential(x_mins, y_mins, kwargs_lens)

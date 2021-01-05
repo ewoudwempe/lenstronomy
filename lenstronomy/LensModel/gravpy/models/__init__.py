@@ -1,3 +1,4 @@
 from .alpha import Alpha
 from .nfw import NFW
-from .sie import SIE
+from .sie_nb import SIE
+from .shear_nb import Shear
