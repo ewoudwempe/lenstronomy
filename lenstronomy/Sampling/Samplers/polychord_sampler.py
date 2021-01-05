@@ -26,7 +26,7 @@ class DyPolyChordSampler(NestedSampler):
                  output_dir=None, output_basename='-',
                  resume_dyn_run=False,
                  polychord_settings={},
-                 remove_output_dir=False, use_mpi=False): #, num_mpi_procs=1):
+                 remove_output_dir=False, use_mpi=False, saveu=False): #, num_mpi_procs=1):
         """
         :param likelihood_module: likelihood_module like in likelihood.py (should be callable)
         :param prior_type: 'uniform' of 'gaussian', for converting the unit hypercube to param cube
@@ -41,6 +41,7 @@ class DyPolyChordSampler(NestedSampler):
         :param polychord_settings: settings dictionary to send to pypolychord. Check dypolychord documentation for details.
         :param remove_output_dir: remove the output_dir folder after completion
         :param use_mpi: Use MPI computing if `True`
+        :param saveu: Use if you need the unit hypercube parameters for each sample as well as the physical parameters
         """
         self._check_install()
         super(DyPolyChordSampler, self).__init__(likelihood_module, prior_type, 
@@ -54,8 +55,9 @@ class DyPolyChordSampler(NestedSampler):
 
         self._use_mpi = use_mpi
 
-        self._output_dir= output_dir
+        self._output_dir = output_dir
         self._is_master = True
+        self.saveu = saveu
 
         if self._use_mpi:
             from mpi4py import MPI
@@ -79,8 +81,11 @@ class DyPolyChordSampler(NestedSampler):
 
         if self._all_installed:
             # create the dyPolyChord callable object
-            self._sampler = self._RunPyPolyChord(self.log_likelihood,
-                                                 self.prior, self.n_dims)
+            if not self.saveu:
+                self._sampler = self._RunPyPolyChord(self.log_likelihood, self.prior, self.n_dims)
+            else:
+                self._sampler = self._RunPyPolyChord(self.log_likelihood_fromu,
+                                                     self.identity, self.n_dims, self.n_dims)
         else:
             self._sampler = None
 
@@ -102,6 +107,14 @@ class DyPolyChordSampler(NestedSampler):
             logL = -1e15
             self._has_warned = True
         return float(logL), phi
+
+    def identity(self, u):
+        return u
+
+    def log_likelihood_fromu(self, u):
+        phys = self.prior(u)
+        logL = self.log_likelihood(phys)[0]
+        return logL, phys
 
     def run(self, dynamic_goal, kwargs_run):
         """
@@ -148,6 +161,7 @@ class DyPolyChordSampler(NestedSampler):
             logZ     = ns_run['output']['logZ']
             logZ_err = ns_run['output']['logZerr']
             means    = ns_run['output']['param_means']
+            ns_run['weights'] = self._ns_get_weights(ns_run)
 
             print('The log evidence estimate using the first run is {}'
                   .format(logZ))
@@ -157,7 +171,7 @@ class DyPolyChordSampler(NestedSampler):
             if self._rm_output:
                 shutil.rmtree(self._output_dir, ignore_errors=True)
 
-            return samples, means, logZ, logZ_err, logL, ns_run
+            return samples[:,self.n_dims:], means[self.n_dims:], logZ, logZ_err, logL, ns_run
         else:
             sys.exit(0)
             return None
@@ -198,6 +212,7 @@ You can get it from : https://github.com/ejhigson/dyPolyChord")
 
         try:
             from nestcheck import data_processing
+            from nestcheck.ns_run_utils import get_logw
         except:
             print("Warning : nestcheck not properly installed (results might be unexpected). \
 You can get it from : https://github.com/ejhigson/nestcheck")
@@ -205,5 +220,6 @@ You can get it from : https://github.com/ejhigson/nestcheck")
         else:
             nestcheck_installed = True
             self._ns_process_run = data_processing.process_polychord_run
+            self._ns_get_weights = get_logw
 
         self._all_installed = dypolychord_installed and nestcheck_installed

@@ -21,7 +21,7 @@ class MultiNestSampler(NestedSampler):
     def __init__(self, likelihood_module, prior_type='uniform', 
                  prior_means=None, prior_sigmas=None, width_scale=1, sigma_scale=1,
                  output_dir=None, output_basename='-',
-                 remove_output_dir=False, use_mpi=False):
+                 remove_output_dir=False, use_mpi=False, saveu=True):
         """
         :param likelihood_module: likelihood_module like in likelihood.py (should be callable)
         :param prior_type: 'uniform' of 'gaussian', for converting the unit hypercube to param cube
@@ -41,6 +41,7 @@ class MultiNestSampler(NestedSampler):
 
         # here we assume number of dimensons = number of parameters
         self.n_params = self.n_dims
+        self.saveu = saveu
 
         if output_dir is None:
             self._output_dir = 'multinest_out_default'
@@ -89,6 +90,20 @@ class MultiNestSampler(NestedSampler):
         for i in range(self.n_dims):
             cube[i] = cube_py[i]
 
+    def identity_mn(selfs, cube, ndim, nparams):
+        pass
+
+    def log_likelihood_u(self, args, ndim, nparams):
+        args_py = self._multinest2python(args, ndim)
+        phys = self.prior(args_py)
+        logL = self._ll(phys)
+        if not np.isfinite(logL):
+            if not self._has_warned:
+                print("WARNING : logL is not finite : return very low value instead")
+            logL = -1e15
+            self._has_warned = True
+        return float(logL)
+
     def log_likelihood(self, args, ndim, nparams):
         """
         compute the log-likelihood given list of parameters
@@ -120,16 +135,39 @@ class MultiNestSampler(NestedSampler):
         print("parameter names :", self.param_names)
         
         if self._pymultinest_installed:
-            self._pymultinest.run(self.log_likelihood, self.prior_multinest, self.n_dims,
-                                  outputfiles_basename=self.files_basename,
-                                  resume=False, verbose=True,
-                                  init_MPI=self._use_mpi, **kwargs_run)
+            if self.saveu:
+                self._pymultinest.run(self.log_likelihood_u, self.identity_mn, self.n_dims,
+                                      outputfiles_basename=self.files_basename,
+                                      resume=False, verbose=True,
+                                      **kwargs_run)
+            else:
+                self._pymultinest.run(self.log_likelihood, self.prior_multinest, self.n_dims,
+                                      outputfiles_basename=self.files_basename,
+                                      resume=False, verbose=True,
+                                      **kwargs_run)
 
+            print("Analyzing output")
             analyzer = self._Analyzer(self.n_dims, outputfiles_basename=self.files_basename)
-            samples = analyzer.get_equal_weighted_posterior()[:, :-1]
-            data  = analyzer.get_data()  # gets data from the *.txt output file
-            stats = analyzer.get_stats()
-
+            if self.saveu:
+                samples_u = analyzer.get_equal_weighted_posterior()[:, :-1]
+                print("Recalculating the physical values for equal samples")
+                samples = np.array([self.prior(u) for u in samples_u])
+                data  = analyzer.get_data()  # gets data from the *.txt output file
+                stats = analyzer.get_stats()
+                stats['samples_u'] = samples_u
+                stats['samples_u_weighted'] = data[:,2:]
+                print("Recalculating the physical values for weighted samples")
+                stats['samples_weighted'] = np.array([self.prior(u) for u in data[:,2:]])
+                stats['weights'] = data[:,0]
+                stats['logl'] = data[:,1]
+            else:
+                samples = analyzer.get_equal_weighted_posterior()[:, :-1]
+                data  = analyzer.get_data()  # gets data from the *.txt output file
+                stats = analyzer.get_stats()
+                stats['samples_weighted'] = data[:,2:]
+                stats['weights'] = data[:,0]
+                stats['logl'] = data[:,1]
+            print("Done analyzing output")
         else:
             # in case MultiNest was not compiled properly, for unit tests
             samples = np.zeros((1, self.n_dims))
