@@ -18,7 +18,8 @@ class DynestySampler(NestedSampler):
 
     def __init__(self, likelihood_module, prior_type='uniform', 
                  prior_means=None, prior_sigmas=None, width_scale=1, sigma_scale=1,
-                 bound='multi', sample='auto', use_mpi=False, use_pool={}):
+                 bound='multi', sample='auto', use_mpi=False, static=False,
+                 pool=None, kwargs={}):
         """
         :param likelihood_module: likelihood_module like in likelihood.py (should be callable)
         :param prior_type: 'uniform' of 'gaussian', for converting the unit hypercube to param cube
@@ -29,35 +30,24 @@ class DynestySampler(NestedSampler):
         :param bound: specific to Dynesty, see https://dynesty.readthedocs.io
         :param sample: specific to Dynesty, see https://dynesty.readthedocs.io
         :param use_mpi: Use MPI computing if `True`
-        :param use_pool: specific to Dynesty, see https://dynesty.readthedocs.io
+        :param kwargs: Any additional kwargs passed to the Sampler object, see https://dynesty.readthedocs.io
         """
         self._check_install()
         super(DynestySampler, self).__init__(likelihood_module, prior_type, 
                                              prior_means, prior_sigmas,
                                              width_scale, sigma_scale)
 
-        # create the Dynesty sampler
-        if use_mpi:
+        if use_mpi and pool is None:
             from schwimmbad import MPIPool
             import sys
-
             pool = MPIPool(use_dill=True)  # use_dill=True not supported for some versions of schwimmbad
             if not pool.is_master():
                 pool.wait()
                 sys.exit(0)
 
-            self._sampler = self._dynesty.DynamicNestedSampler(self.log_likelihood,
-                                                         self.prior, self.n_dims,
-                                                         bound=bound,
-                                                         sample=sample,
-                                                         pool=pool,
-                                                         use_pool=use_pool)
-        else:
-            self._sampler = self._dynesty.DynamicNestedSampler(self.log_likelihood,
-                                                         self.prior,
-                                                         self.n_dims,
-                                                         bound=bound,
-                                                         sample=sample)
+        # create the Dynesty sampler
+        sampler = self._dynesty.NestedSampler if static else self._dynesty.DynamicNestedSampler
+        self._sampler = sampler(self.log_likelihood, self.prior, self.n_dims, bound=bound, sample=sample, pool=pool, **kwargs)
         self._has_warned = False
 
     def prior(self, u):

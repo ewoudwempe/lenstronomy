@@ -20,7 +20,7 @@ class FittingSequence(object):
     The user can take this module as an example of how to create their own workflows or build their own around the FittingSequence
     """
     def __init__(self, kwargs_data_joint, kwargs_model, kwargs_constraints, kwargs_likelihood, kwargs_params, mpi=False,
-                 verbose=True):
+                 pool=None, verbose=True):
         """
 
         :param kwargs_data_joint: keyword argument specifying the data according to LikelihoodModule
@@ -37,6 +37,7 @@ class FittingSequence(object):
         self.multi_band_type = kwargs_data_joint.get('multi_band_type', 'single-band')
         self._verbose = verbose
         self._mpi = mpi
+        self._pool = pool
         self._updateManager = MultiBandUpdateManager(kwargs_model, kwargs_constraints, kwargs_likelihood, kwargs_params,
                                                      num_bands=len(self.multi_band_list))
         self._mcmc_init_samples = None
@@ -189,7 +190,7 @@ class FittingSequence(object):
         return kwargs_result
 
     def mcmc(self, n_burn, n_run, walkerRatio, sigma_scale=1, threadCount=1, init_samples=None, re_use_samples=True,
-             sampler_type='EMCEE', progress=True, backup_filename=None, start_from_backup=False):
+             sampler_type='EMCEE', progress=True, backup_filename=None, start_from_backup=False, pool=None):
         """
         MCMC routine
 
@@ -226,18 +227,18 @@ class FittingSequence(object):
         else:
             initpos = None
 
-        if sampler_type is 'EMCEE':
+        if sampler_type == 'EMCEE':
             n_walkers = num_param * walkerRatio
             samples, dist = mcmc_class.mcmc_emcee(n_walkers, n_run, n_burn, mean_start, sigma_start, mpi=self._mpi,
                                                   threadCount=threadCount, progress=progress, initpos=initpos,
-                                                  backup_filename=backup_filename, start_from_backup=start_from_backup)
+                                                  backup_filename=backup_filename, start_from_backup=start_from_backup, pool=pool)
             output = [sampler_type, samples, param_list, dist]
         else:
             raise ValueError('sampler_type %s not supported!' % sampler_type)
         self._mcmc_init_samples = samples  # overwrites previous samples to continue from there in the next MCMC run
         return output
 
-    def pso(self, n_particles, n_iterations, sigma_scale=1, print_key='PSO', threadCount=1):
+    def pso(self, n_particles, n_iterations, sigma_scale=1, print_key='PSO', threadCount=1, pool=None):
         """
         Particle Swarm Optimization
 
@@ -261,18 +262,18 @@ class FittingSequence(object):
         # run PSO
         sampler = Sampler(likelihoodModule=self.likelihoodModule)
         result, chain = sampler.pso(n_particles, n_iterations, lowerLimit, upperLimit, init_pos=init_pos,
-                                       threadCount=threadCount, mpi=self._mpi, print_key=print_key)
+                                       threadCount=threadCount, mpi=self._mpi, print_key=print_key, pool=pool)
         kwargs_result = param_class.args2kwargs(result, bijective=True)
         return kwargs_result, chain, param_list
 
     def nested_sampling(self, sampler_type='MULTINEST', kwargs_run={},
-                        prior_type='uniform', width_scale=1, sigma_scale=1, 
-                        output_basename='chain', remove_output_dir=True, 
+                        prior_type='uniform', width_scale=1, sigma_scale=1,
+                        output_basename='chain', remove_output_dir=True,
                         dypolychord_dynamic_goal=0.8,
                         polychord_settings={},
                         dypolychord_seed_increment=200,
                         output_dir="nested_sampling_chains",
-                        dynesty_bound='multi', dynesty_sample='auto'):
+                        dynesty_bound='multi', dynesty_sample='auto', kwargs_dynesty={}):
         """
         Run (Dynamic) Nested Sampling algorithms, depending on the type of algorithm.
 
@@ -324,7 +325,8 @@ class FittingSequence(object):
                                          use_mpi=self._mpi)
             samples, means, logZ, logZ_err, logL, results_object = sampler.run(dypolychord_dynamic_goal, kwargs_run)
 
-        elif sampler_type == 'DYNESTY':
+        elif sampler_type in ['DYNESTY', 'DYNESTY_STATIC']:
+            static = sampler_type == 'DYNESTY_STATIC'
             sampler = DynestySampler(self.likelihoodModule,
                                      prior_type=prior_type,
                                      prior_means=mean_start,
@@ -333,7 +335,10 @@ class FittingSequence(object):
                                      sigma_scale=sigma_scale,
                                      bound=dynesty_bound, 
                                      sample=dynesty_sample,
-                                     use_mpi=self._mpi)
+                                     pool=self._pool,
+                                     use_mpi=self._mpi,
+                                     static=static,
+                                     kwargs=kwargs_dynesty)
             samples, means, logZ, logZ_err, logL, results_object = sampler.run(kwargs_run)
 
         else:

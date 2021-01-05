@@ -61,7 +61,7 @@ class Sampler(object):
         return result['x']
 
     def pso(self, n_particles, n_iterations, lower_start=None, upper_start=None,
-            threadCount=1, init_pos=None, mpi=False, print_key='PSO'):
+            threadCount=1, init_pos=None, mpi=False, print_key='PSO', pool=None):
         """
         Return the best fit for the lens model on catalogue basis with
         particle swarm optimizer.
@@ -83,9 +83,14 @@ class Sampler(object):
             lower_start = np.maximum(lower_start, self.lower_limit)
             upper_start = np.minimum(upper_start, self.upper_limit)
 
-        pool = choose_pool(mpi=mpi, processes=threadCount, use_dill=True)
-        
-        if mpi is True and pool.is_master(): print('MPI option chosen for PSO.')
+        if pool is None:
+            pool = choose_pool(mpi=mpi, processes=threadCount, use_dill=True)
+        else:
+            pool.is_master = lambda: True
+
+        if mpi is True and pool.is_master():
+            print('MPI option chosen for PSO.')
+
 
         pso = ParticleSwarmOptimizer(self.chain.logL,
                                      lower_start, upper_start, n_particles,
@@ -121,7 +126,7 @@ class Sampler(object):
         return result, [chi2_list, pos_list, vel_list]
 
     def mcmc_emcee(self, n_walkers, n_run, n_burn, mean_start, sigma_start, mpi=False, progress=False, threadCount=1,
-                   initpos=None, backup_filename=None, start_from_backup=False):
+                   initpos=None, backup_filename=None, start_from_backup=False, pool=None):
         """
         Run MCMC with emcee.
         For details, please have a look at the documentation of the emcee packager.
@@ -156,7 +161,10 @@ class Sampler(object):
         if initpos is None:
             initpos = sampling_util.sample_ball(mean_start, sigma_start, n_walkers, dist='normal')
 
-        pool = choose_pool(mpi=mpi, processes=threadCount, use_dill=True)
+        if pool is None:
+            pool = choose_pool(mpi=mpi, processes=threadCount, use_dill=True)
+        else:
+            pool.is_master = lambda: True
 
         if backup_filename is not None:
             backend = emcee.backends.HDFBackend(backup_filename, name="lenstronomy_mcmc_emcee")
