@@ -55,7 +55,11 @@ class TimeDelayLikelihood(object):
         if len(delays_model)-1 != len(delays_measured):
             return -10**(15)
         delta_t_model = np.array(delays_model[1:]) - delays_model[0]
-        logL = np.sum(-(delta_t_model - delays_measured) ** 2 / (2 * delays_errors ** 2))
+        if delays_errors.ndim <= 1:
+            logL = np.sum(-(delta_t_model - delays_measured) ** 2 / (2 * delays_errors ** 2))
+        elif delays_errors.ndim == 2:
+            D = delta_t_model - delays_measured
+            logL = -1/2* D @ np.linalg.inv(delays_errors) @ D
         return logL
 
     @property
