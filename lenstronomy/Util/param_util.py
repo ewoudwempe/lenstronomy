@@ -6,6 +6,7 @@ export, __all__ = exporter()
 
 
 @export
+@jit()
 def cart2polar(x, y, center_x=0, center_y=0):
     """
     transforms cartesian coords [x,y] into polar coords [r,phi] in the frame of the lense center
@@ -28,6 +29,7 @@ def cart2polar(x, y, center_x=0, center_y=0):
 
 
 @export
+@jit()
 def polar2cart(r, phi, center):
     """
     transforms polar coords [r,phi] into cartesian coords [x,y] in the frame of the lense center
@@ -45,6 +47,7 @@ def polar2cart(r, phi, center):
 
 
 @export
+@jit()
 def shear_polar2cartesian(phi, gamma):
     """
 
@@ -58,6 +61,7 @@ def shear_polar2cartesian(phi, gamma):
 
 
 @export
+@jit()
 def shear_cartesian2polar(gamma1, gamma2):
     """
     :param gamma1: cartesian shear component
@@ -102,6 +106,7 @@ def ellipticity2phi_q(e1, e2):
 
 
 @export
+@jit()
 def transform_e1e2_product_average(x, y, e1, e2, center_x, center_y):
     """
     maps the coordinates x, y with eccentricities e1 e2 into a new elliptical coordinate system
@@ -128,6 +133,7 @@ def transform_e1e2_product_average(x, y, e1, e2, center_x, center_y):
 
 
 @export
+@jit()
 def transform_e1e2_square_average(x, y, e1, e2, center_x, center_y):
     """
     maps the coordinates x, y with eccentricities e1 e2 into a new elliptical coordinate system
