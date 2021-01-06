@@ -210,7 +210,7 @@ class LikelihoodModule(object):
                 print('custom added logL = %s' % logL_cond)
         self._reset_point_source_cache(bool=False)
         if logL < -10**14 and self.justasbad:
-            return -10**5 # Ensure that bad samples are just as bad as each other, so that multinest sampling will always reject them
+            return -10**7 # Ensure that bad samples are just as bad as each other, so that multinest sampling will always reject them
         return logL#, None
 
     @staticmethod
