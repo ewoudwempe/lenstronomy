@@ -11,7 +11,7 @@ class SpecialParam(object):
 
     def __init__(self, Ddt_sampling=False, mass_scaling=False, num_scale_factor=1, kwargs_fixed=None, kwargs_lower=None,
                  kwargs_upper=None, point_source_offset=False, source_size=False, num_images=0, num_tau0=0,
-                 num_z_sampling=0, source_grid_offset=False):
+                 num_z_sampling=0, source_grid_offset=False, simple_z_sampling=False):
         """
 
         :param Ddt_sampling: bool, if True, samples the time-delay distance D_dt (in units of Mpc)
@@ -31,6 +31,7 @@ class SpecialParam(object):
         """
 
         self._D_dt_sampling = Ddt_sampling
+        self._simple_z_sampling = simple_z_sampling
         self._mass_scaling = mass_scaling
         self._num_scale_factor = num_scale_factor
         self._point_source_offset = point_source_offset
@@ -51,6 +52,9 @@ class SpecialParam(object):
             kwargs_lower = {}
             if self._D_dt_sampling is True:
                 kwargs_lower['D_dt'] = 0
+            if self._simple_z_sampling:
+                kwargs_lower['z_lens'] = 0
+                kwargs_lower['z_source'] = None # Should be z_lens, but for now this is just delegated to the user
             if self._mass_scaling is True:
                 kwargs_lower['scale_factor'] = [0] * self._num_scale_factor
             if self._point_source_offset is True:
@@ -69,6 +73,9 @@ class SpecialParam(object):
             kwargs_upper = {}
             if self._D_dt_sampling is True:
                 kwargs_upper['D_dt'] = 100000
+            if self._simple_z_sampling:
+                kwargs_upper['z_lens'] = None  # Should be z_source, but for now this is just delegated to the user
+                kwargs_upper['z_source'] = 20
             if self._mass_scaling is True:
                 kwargs_upper['scale_factor'] = [1000] * self._num_scale_factor
             if self._point_source_offset is True:
@@ -100,6 +107,17 @@ class SpecialParam(object):
                 i += 1
             else:
                 kwargs_special['D_dt'] = self._kwargs_fixed['D_dt']
+        if self._simple_z_sampling:
+            if 'z_lens' not in self._kwargs_fixed:
+                kwargs_special['z_lens'] = args[i]
+                i += 1
+            else:
+                kwargs_special['z_lens'] = self._kwargs_fixed['z_lens']
+            if 'z_source' not in self._kwargs_fixed:
+                kwargs_special['z_source'] = args[i]
+                i += 1
+            else:
+                kwargs_special['z_source'] = self._kwargs_fixed['z_source']
         if self._mass_scaling is True:
             if 'scale_factor' not in self._kwargs_fixed:
                 kwargs_special['scale_factor'] = args[i: i + self._num_scale_factor]
@@ -158,6 +176,11 @@ class SpecialParam(object):
         if self._D_dt_sampling is True:
             if 'D_dt' not in self._kwargs_fixed:
                 args.append(kwargs_special['D_dt'])
+        if self._simple_z_sampling:
+            if 'z_lens' not in self._kwargs_fixed:
+                args.append(kwargs_special['z_lens'])
+            if 'z_source' not in self._kwargs_fixed:
+                args.append(kwargs_special['z_source'])
         if self._mass_scaling is True:
             if 'scale_factor' not in self._kwargs_fixed:
                 for i in range(self._num_scale_factor):
@@ -198,6 +221,13 @@ class SpecialParam(object):
             if 'D_dt' not in self._kwargs_fixed:
                 num += 1
                 string_list.append('D_dt')
+        if self._simple_z_sampling:
+            if 'z_lens' not in self._kwargs_fixed:
+                num += 1
+                string_list.append('z_lens')
+            if 'z_source' not in self._kwargs_fixed:
+                num += 1
+                string_list.append('z_source')
         if self._mass_scaling is True:
             if 'scale_factor' not in self._kwargs_fixed:
                 num += self._num_scale_factor

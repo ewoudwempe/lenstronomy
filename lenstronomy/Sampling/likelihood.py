@@ -34,7 +34,7 @@ class LikelihoodModule(object):
                  prior_extinction_kde=[], prior_lens_lognormal=[], prior_source_lognormal=[],
                  prior_extinction_lognormal=[], prior_lens_light_lognormal=[], prior_ps_lognormal=[],
                  prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None,
-                 noflux_ps=False, justasbad=True, verbose=False):
+                 noflux_ps=False, justasbad=True, cosmo=None, verbose=False):
         """
         initializing class
 
@@ -77,6 +77,8 @@ class LikelihoodModule(object):
         self.justasbad = justasbad
 
         self.verbose=verbose
+
+        self.cosmo = cosmo
         self.noflux_ps = noflux_ps
         self.param = param_class
         self._lower_limit, self._upper_limit = self.param.param_limits()
@@ -134,7 +136,7 @@ class LikelihoodModule(object):
         if self._time_delay_likelihood is True:
             self.time_delay_likelihood = TimeDelayLikelihood(lens_model_class=lens_model_class,
                                                              point_source_class=point_source_class,
-                                                             **kwargs_time_delay)
+                                                             **kwargs_time_delay, cosmo=self.cosmo)
 
         if self._image_likelihood is True:
             if self.noflux_ps:

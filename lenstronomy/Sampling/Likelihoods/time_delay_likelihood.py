@@ -1,5 +1,7 @@
 import numpy as np
 import lenstronomy.Util.constants as const
+from lenstronomy.Cosmo.lens_cosmo import LensCosmo
+from astropy.cosmology import Planck18_arXiv_v2
 
 __all__ = ['TimeDelayLikelihood']
 
@@ -8,7 +10,7 @@ class TimeDelayLikelihood(object):
     """
     class to compute the likelihood of a model given a measurement of time delays
     """
-    def __init__(self, time_delays_measured, time_delays_uncertainties, lens_model_class, point_source_class):
+    def __init__(self, time_delays_measured, time_delays_uncertainties, lens_model_class, point_source_class, cosmo=None):
         """
 
         :param time_delays_measured: relative time delays (in days) in respect to the first image of the point source
@@ -26,6 +28,7 @@ class TimeDelayLikelihood(object):
         self._delays_errors = np.array(time_delays_uncertainties)
         self._lensModel = lens_model_class
         self._pointSource = point_source_class
+        self.cosmo = cosmo if cosmo is not None else Planck18_arXiv_v2
 
     def logL(self, kwargs_lens, kwargs_ps, kwargs_cosmo):
         """
@@ -38,7 +41,12 @@ class TimeDelayLikelihood(object):
         x_pos, y_pos = self._pointSource.image_position(kwargs_ps=kwargs_ps, kwargs_lens=kwargs_lens, original_position=True)
         x_pos, y_pos = x_pos[0], y_pos[0]
         delay_arcsec = self._lensModel.fermat_potential(x_pos, y_pos, kwargs_lens)
-        D_dt_model = kwargs_cosmo['D_dt']
+        if 'D_dt' in kwargs_cosmo:
+            D_dt_model = kwargs_cosmo['D_dt']
+        elif 'z_lens' in kwargs_cosmo and 'z_source' in kwargs_cosmo:
+            D_dt_model = LensCosmo(z_lens=kwargs_cosmo['z_lens'], z_source=kwargs_cosmo['z_source'], cosmo=self.cosmo).ddt
+        else:
+            raise AttributeError("Need to either sample time delays or lens & source redshifts to use a time-delay likelihood")
         delay_days = const.delay_arcsec2days(delay_arcsec, D_dt_model)
         logL = self._logL_delays(delay_days, self._delays_measured, self._delays_errors)
         return logL
