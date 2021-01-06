@@ -33,7 +33,8 @@ class LikelihoodModule(object):
                  prior_source_kde=[], prior_lens_light_kde=[], prior_ps_kde=[], prior_special_kde=[],
                  prior_extinction_kde=[], prior_lens_lognormal=[], prior_source_lognormal=[],
                  prior_extinction_lognormal=[], prior_lens_light_lognormal=[], prior_ps_lognormal=[],
-                 prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None, noflux_ps=False, justasbad=True):
+                 prior_special_lognormal=[], custom_logL_addition=None, kwargs_pixelbased=None,
+                 noflux_ps=False, justasbad=True, verbose=False):
         """
         initializing class
 
@@ -75,6 +76,7 @@ class LikelihoodModule(object):
             image_likelihood = False
         self.justasbad = justasbad
 
+        self.verbose=verbose
         self.noflux_ps = noflux_ps
         self.param = param_class
         self._lower_limit, self._upper_limit = self.param.param_limits()
@@ -148,11 +150,12 @@ class LikelihoodModule(object):
     def __call__(self, a):
         return self.logL(a)
 
-    def logL(self, args, verbose=False):
+    def logL(self, args, verbose=None):
         """
         routine to compute X2 given variable parameters for a MCMC/PSO chain
         """
         # extract parameters
+        verbose = self.verbose if verbose is None else verbose
         kwargs_return = self.param.args2kwargs(args)
         if self._check_bounds is True:
             penalty, bound_hit = self.check_bounds(args, self._lower_limit, self._upper_limit, verbose=verbose)
