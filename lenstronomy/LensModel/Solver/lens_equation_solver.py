@@ -186,11 +186,33 @@ class LensEquationSolver(object):
 
         return ((x_mins, y_mins), caustics) if include_caustics else x_mins, y_mins
 
+    def image_position_analytical(self, x, y, kwargs_lens, arrival_time_sort=True, kwargs_solver=None, **kwargs):
+        if list(self.lensModel.lens_model_list) not in (['SIE', 'SHEAR'], ['SIE']):
+            raise ValueError("Only SIE (+shear) supported in the analytical solver for now")
+        if list(self.lensModel.lens_model_list) == ['SIE']:
+            assert len(kwargs_lens) == 1
+            kwargs_lens.append({'gamma1': 0., 'gamma2': 0., 'ra_0': kwargs_lens[0]['center_x'], 'dec_0': kwargs_lens[0]['center_y']})
+        if kwargs_lens[1]['ra_0'] != kwargs_lens[0]['center_x'] or kwargs_lens[1]['dec_0'] != kwargs_lens[0]['center_y']:
+            raise ValueError("Center of lens (center_{x,y}) must be the same as center of shear ({ra,dec}_0)")
+        if kwargs_solver is None:
+            kwargs_solver = {}
+        if np.array(x).ndim > 0: # Never done by lenstronomy itself I think, for external code
+            pos = [x[0], y[0]]
+        else:
+            pos = [x, y]
+        from sh.solve_sie_shear import solve_lenseq
+        x_mins, y_mins = solve_lenseq(pos, kwargs_lens, **kwargs_solver)
+        if arrival_time_sort:
+            x_mins, y_mins = self.sort_arrival_times(x_mins, y_mins, kwargs_lens)
+        return x_mins, y_mins
+
     def image_position_from_source(self, *args, solver='lenstronomy', **kwargs):
         if solver=='gravpy':
             return self.image_position_gravpy(*args, **kwargs)
         if solver=='lenstronomy':
             return self.image_position_lenstronomy(*args, **kwargs)
+        if solver=='analytical':
+            return self.image_position_analytical(*args, **kwargs)
         raise ValueError(f"{solver} is not a valid solver.")
 
 
