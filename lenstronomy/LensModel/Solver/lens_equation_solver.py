@@ -193,7 +193,7 @@ class LensEquationSolver(object):
         lens_model_list = list(self.lensModel.lens_model_list)
         if lens_model_list not in (['SIE', 'SHEAR'], ['SIE'], ['EPL_NUMBA', 'SHEAR'], ['EPL_NUMBA']):
             raise ValueError("Only SIE or PEMD (+shear) supported in the analytical solver for now")
-        if lens_model_list in (['SIE'], ['EPL_numba']):
+        if lens_model_list in (['SIE'], ['EPL_NUMBA']):
             assert len(kwargs_lens) == 1
             kwargs_lens = kwargs_lens + [{'gamma1': 0., 'gamma2': 0., 'ra_0': kwargs_lens[0]['center_x'], 'dec_0': kwargs_lens[0]['center_y']}]
         if kwargs_lens[1]['ra_0'] != kwargs_lens[0]['center_x'] or kwargs_lens[1]['dec_0'] != kwargs_lens[0]['center_y']:
