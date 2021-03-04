@@ -5,7 +5,7 @@ import numpy as np
 from lenstronomy.Sampling.Samplers.base_nested_sampler import NestedSampler
 import lenstronomy.Util.sampling_util as utils
 import dynesty
-import dynesty.utils as dyfunc
+from dynesty import utils as dyfunc
 
 __all__ = ['DynestySampler']
 
