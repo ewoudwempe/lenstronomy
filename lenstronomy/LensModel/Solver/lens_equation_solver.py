@@ -6,6 +6,9 @@ from lenstronomy.LensModel.Solver.marching_squares import marching_squares, _ass
 from lenstronomy.LensModel.Solver.gravlens_overloaded import GravlensOverloaded
 from lenstronomy.Util.param_util import ellipticity2phi_q
 
+from sh.solve_sie_shear import solve_lenseq_sie
+from sh.solvepowerlaw import solve_lenseq_pemd
+
 __all__ = ['LensEquationSolver']
 
 
@@ -187,11 +190,12 @@ class LensEquationSolver(object):
         return ((x_mins, y_mins), caustics) if include_caustics else x_mins, y_mins
 
     def image_position_analytical(self, x, y, kwargs_lens, arrival_time_sort=True, kwargs_solver=None, **kwargs):
-        if list(self.lensModel.lens_model_list) not in (['SIE', 'SHEAR'], ['SIE']):
-            raise ValueError("Only SIE (+shear) supported in the analytical solver for now")
-        if list(self.lensModel.lens_model_list) == ['SIE']:
+        lens_model_list = list(self.lensModel.lens_model_list)
+        if lens_model_list not in (['SIE', 'SHEAR'], ['SIE'], ['EPL_NUMBA', 'SHEAR'], ['EPL_NUMBA']):
+            raise ValueError("Only SIE or PEMD (+shear) supported in the analytical solver for now")
+        if lens_model_list in (['SIE'], ['EPL_numba']):
             assert len(kwargs_lens) == 1
-            kwargs_lens.append({'gamma1': 0., 'gamma2': 0., 'ra_0': kwargs_lens[0]['center_x'], 'dec_0': kwargs_lens[0]['center_y']})
+            kwargs_lens = kwargs_lens + [{'gamma1': 0., 'gamma2': 0., 'ra_0': kwargs_lens[0]['center_x'], 'dec_0': kwargs_lens[0]['center_y']}]
         if kwargs_lens[1]['ra_0'] != kwargs_lens[0]['center_x'] or kwargs_lens[1]['dec_0'] != kwargs_lens[0]['center_y']:
             raise ValueError("Center of lens (center_{x,y}) must be the same as center of shear ({ra,dec}_0)")
         if kwargs_solver is None:
@@ -200,8 +204,11 @@ class LensEquationSolver(object):
             pos = [x[0], y[0]]
         else:
             pos = [x, y]
-        from sh.solve_sie_shear import solve_lenseq
-        x_mins, y_mins = solve_lenseq(pos, kwargs_lens, **kwargs_solver)
+
+        if lens_model_list[0] == 'SIE':
+            x_mins, y_mins = solve_lenseq_sie(pos, kwargs_lens, **kwargs_solver)
+        elif lens_model_list[0] == 'EPL_NUMBA':
+            x_mins, y_mins = solve_lenseq_pemd(pos, kwargs_lens, **kwargs_solver)
         if arrival_time_sort:
             x_mins, y_mins = self.sort_arrival_times(x_mins, y_mins, kwargs_lens)
         return x_mins, y_mins
